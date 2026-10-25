@@ -1,0 +1,5 @@
+# References to component-owned pins; this file does not select replacement versions.
+protocol-robustness-framework = "deps.edn"
+symphony = "elixir/mise.toml,elixir/mix.lock"
+protocol-deployments = "package.json,package-lock.json"
+prf-coprocessor = "Cargo.lock,rust-toolchain.toml"

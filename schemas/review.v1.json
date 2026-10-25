@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://protocol-robustness.github.io/prf-dev/schemas/review.v1",
+  "title": "Independent repair review v1 (PRO-90 interoperable view)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "snapshot_root",
+    "execution_root",
+    "verdict",
+    "findings",
+    "limitations",
+    "signature"
+  ],
+  "properties": {
+    "schema": {
+      "const": "repair-review.v1"
+    },
+    "execution_root": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "verdict": {
+      "enum": [
+        "approved",
+        "rejected",
+        "incomplete"
+      ]
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "signature": {
+      "$ref": "authorization.v1.json#/$defs/signature"
+    },
+    "snapshot_root": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

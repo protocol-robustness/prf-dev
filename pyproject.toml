@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prf-dev"
+version = "0.1.0"
+description = "Cross-repository PRF development and verification tools"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+prf-dev = "prf_dev.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.data-files]
+"share/prf-dev" = ["repos.yaml"]
+"share/prf-dev/profiles" = ["profiles/*.json", "profiles/toolchains.lock"]
+"share/prf-dev/policies" = ["policies/*.json", "policies/SHA256SUMS"]
+"share/prf-dev/schemas" = ["schemas/*.json"]
+"share/prf-dev/examples/repair-example-001" = ["examples/repair-example-001/README.md", "examples/repair-example-001/reproduction.json", "examples/repair-example-001/repair.py"]
+"share/prf-dev/examples/repair-example-001/input" = ["examples/repair-example-001/input/broken.json"]

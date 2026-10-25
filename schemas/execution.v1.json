@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://protocol-robustness.github.io/prf-dev/schemas/execution.v1",
+  "title": "Repair execution evidence v1 (PRO-90 interoperable view)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "repository_id", "snapshot_root", "authorization_root", "source_revision", "target_revision", "operations", "operation_ids", "commands", "before_tree", "after_tree", "evidence", "evidence_manifest_root", "signature"],
+  "properties": {
+    "schema": {"const": "repair-execution.v1"},
+    "repository_id": {"type": "string"},
+    "snapshot_root": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "authorization_root": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "source_revision": {"type": "string"},
+    "target_revision": {"type": "string"},
+    "operations": {"type": "array", "items": {"type": "string"}},
+    "operation_ids": {"type": "array", "items": {"type": "string"}},
+    "commands": {"type": "array", "items": {"type": "object"}},
+    "before_tree": {"type": "string"},
+    "after_tree": {"type": "string"},
+    "evidence_manifest_root": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "source_mapping": {"type": "array", "items": {"type": "object"}},
+    "verification_results": {"type": "array", "items": {"type": "object"}},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "evidence": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}},
+    "signature": {"$ref": "authorization.v1.json#/$defs/signature"}
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schema": "prf-dev-workspace-policy.v1",
+  "policy_id": "prf-dev-workspace-policy-v1",
+  "reproducibility": {
+    "strict_requires_clean_worktrees": true,
+    "commit_identity_required": true,
+    "git_tree_identity_required": true,
+    "jj_change_id_is_authoritative": false,
+    "jj_operation_id_is_historical_evidence": true
+  },
+  "local_overrides": {
+    "may_set_paths": true,
+    "may_set_capabilities": true,
+    "may_relax_policy": false,
+    "may_select_trust_roots_from_artifact": false
+  }
+}

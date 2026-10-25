@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://protocol-robustness.github.io/prf-dev/schemas/trust-policy.v1",
+  "title": "Independently supplied PRF development trust policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "policy_id", "principals", "governance_threshold"],
+  "properties": {
+    "schema": {"const": "prf-dev-trust-policy.v1"},
+    "policy_id": {"type": "string"},
+    "principals": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["public_key", "roles", "repositories", "refs", "operations", "status"],
+        "properties": {
+          "public_key": {"type": "string"},
+          "roles": {"type": "array", "items": {"type": "string"}},
+          "repositories": {"type": "array", "items": {"type": "string"}},
+          "refs": {"type": "array", "items": {"type": "string"}},
+          "operations": {"type": "array", "items": {"type": "string"}},
+          "status": {"enum": ["active", "revoked", "retired"]},
+          "valid_from": {"type": "string"},
+          "valid_until": {"type": "string"}
+        }
+      }
+    },
+    "governance_threshold": {"type": "integer", "const": 3}
+  }
+}

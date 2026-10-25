@@ -1,0 +1,20 @@
+{
+  "schema": "prf-dev-profile.v1",
+  "id": "core",
+  "description": "PRF source review, workspace snapshots, and repair evidence verification",
+  "capabilities": ["git-snapshot", "jj-observation", "canonical-hash", "ssh-signature-verification"],
+  "tools": [
+    {"executable": "python3", "required": true},
+    {"executable": "git", "required": true},
+    {"executable": "jj", "required": true},
+    {"executable": "clojure", "required": true},
+    {"executable": "ssh-keygen", "required": true},
+    {"executable": "docker", "required": false},
+    {"executable": "podman", "required": false}
+  ],
+  "repository_contracts": {"protocol-robustness-framework": ["deps.edn"]},
+  "optional_repository_contracts": {
+    "symphony": ["elixir/mise.toml", "elixir/mix.lock"],
+    "protocol-deployments": ["package.json", "package-lock.json"]
+  }
+}

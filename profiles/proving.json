@@ -1,0 +1,13 @@
+{
+  "schema": "prf-dev-profile.v1",
+  "id": "proving",
+  "description": "EVM profile plus prover capabilities declared by the owning coprocessor repository",
+  "extends": "evm",
+  "capabilities": ["rust", "sp1-prover"],
+  "tools": [
+    {"executable": "cargo", "required": true},
+    {"executable": "rustc", "required": true},
+    {"executable": "cargo-prove", "required": true}
+  ],
+  "repository_contracts": {"prf-coprocessor": ["Cargo.lock", "rust-toolchain.toml"]}
+}

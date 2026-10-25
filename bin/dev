@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+set -eu
+if [ "${1:-}" = doctor ]; then shift; exec "$(dirname "$0")/prf-dev" doctor "$@"; fi
+echo "usage: dev doctor [options] (use prf-dev for other commands)" >&2
+exit 2

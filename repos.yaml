@@ -1,0 +1,11 @@
+{
+  "schema": "prf-dev-repository-catalog.v1",
+  "repositories": {
+    "protocol-robustness-framework": {"remote": "https://github.com/protocol-robustness/protocol-robustness-framework.git", "authority": "PRF protocols, simulations, and canonical evidence rules", "profile": "core"},
+    "prf-canonical": {"remote": "https://github.com/protocol-robustness/prf-canonical.git", "authority": "canonical binary artifact encoding", "profile": "core"},
+    "prf-coprocessor": {"remote": "https://github.com/protocol-robustness/prf-coprocessor.git", "authority": "proving implementation and toolchain", "profile": "proving"},
+    "prf-evm": {"remote": "https://github.com/protocol-robustness/prf-evm.git", "authority": "PRF contract implementations", "profile": "evm"},
+    "protocol-deployments": {"remote": "https://github.com/protocol-robustness/protocol-deployments.git", "authority": "deployment configuration, execution, and deployment verification", "profile": "evm"},
+    "symphony": {"remote": "https://github.com/openai/symphony.git", "authority": "agent orchestration and runtime workflow", "profile": "optional"}
+  }
+}

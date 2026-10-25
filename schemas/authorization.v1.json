@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://protocol-robustness.github.io/prf-dev/schemas/authorization.v1",
+  "title": "Protected repair authorization v1 (PRO-90 interoperable view)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "authorization_id",
+    "repository_id",
+    "source_ref",
+    "target_ref",
+    "source_revision",
+    "target_revision",
+    "operations",
+    "expires_at",
+    "snapshot_root",
+    "trust_policy_root",
+    "signature"
+  ],
+  "properties": {
+    "schema": {
+      "const": "repair-authorization.v1"
+    },
+    "authorization_id": {
+      "type": "string"
+    },
+    "repository_id": {
+      "type": "string"
+    },
+    "source_ref": {
+      "type": "string"
+    },
+    "target_ref": {
+      "type": "string"
+    },
+    "source_revision": {
+      "type": "string"
+    },
+    "target_revision": {
+      "type": "string"
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "snapshot_root": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "trust_policy_root": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "authority_claim": {
+      "type": "boolean"
+    },
+    "governance_signatures": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/signature"
+      }
+    },
+    "signature": {
+      "$ref": "#/$defs/signature"
+    }
+  },
+  "$defs": {
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "principal",
+        "namespace",
+        "payload_digest",
+        "file",
+        "signed_at"
+      ],
+      "properties": {
+        "principal": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "payload_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "file": {
+          "type": "string"
+        },
+        "signed_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

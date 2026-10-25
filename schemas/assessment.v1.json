@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://protocol-robustness.github.io/prf-dev/schemas/assessment.v1",
+  "title": "Repairability assessment v1 (PRO-90 interoperable view)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "assessment_id", "snapshot_root", "repository_id", "incident", "observed_defect", "recoverable_states", "missing_information", "proposed_actions", "claim_boundary"],
+  "properties": {
+    "schema": {"const": "repair-assessment.v1"},
+    "assessment_id": {"type": "string", "minLength": 1},
+    "snapshot_root": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "repository_id": {"type": "string"},
+    "incident": {"type": "string"},
+    "observed_defect": {"type": "string"},
+    "recoverable_states": {"type": "array", "items": {"type": "string"}},
+    "missing_information": {"type": "array", "items": {"type": "string"}},
+    "proposed_actions": {"type": "array", "items": {"type": "object"}},
+    "claim_boundary": {"type": "string"}
+  }
+}

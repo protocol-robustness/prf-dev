@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "prf-dev.integration-admission.v1",
+  "title": "PRF staging admission evidence consumed by integration preflight",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "source_commit", "target_commit", "reviewed_commits", "review", "staging", "qualification", "issues", "evidence"],
+  "properties": {
+    "schema": {"const": "prf-dev.integration-admission.v1"},
+    "status": {"const": "admitted"},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "target_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "reviewed_commits": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[0-9a-f]{40}$"}},
+    "review": {"$ref": "#/$defs/review"},
+    "staging": {"$ref": "#/$defs/staging"},
+    "qualification": {"$ref": "#/$defs/qualification"},
+    "issues": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/evidence"}}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["ref", "sha256"],
+      "properties": {"ref": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/digest"}}
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "candidate_commit", "reviewer", "ref", "sha256"],
+      "properties": {
+        "status": {"const": "approved"},
+        "candidate_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "reviewer": {"type": "string", "minLength": 1},
+        "ref": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "staging": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "source_commit", "target_commit", "ref", "sha256"],
+      "properties": {
+        "status": {"const": "admitted"},
+        "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "target_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "ref": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "test": {
+      "type": "object", "additionalProperties": false,
+      "required": ["command", "status", "tree"],
+      "properties": {
+        "command": {"type": "string", "minLength": 1},
+        "status": {"const": "passed"},
+        "tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      }
+    },
+    "qualification": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "commit", "tree", "tests"],
+      "properties": {
+        "status": {"const": "passed"},
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "tests": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/test"}}
+      }
+    }
+  }
+}

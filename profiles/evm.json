@@ -1,0 +1,14 @@
+{
+  "schema": "prf-dev-profile.v1",
+  "id": "evm",
+  "description": "Core plus the component-owned EVM and deployment toolchain",
+  "extends": "core",
+  "capabilities": ["anvil", "forge", "node-deployment-tools"],
+  "tools": [
+    {"executable": "node", "required": true},
+    {"executable": "npm", "required": true},
+    {"executable": "forge", "required": true},
+    {"executable": "anvil", "required": true}
+  ],
+  "repository_contracts": {"protocol-deployments": ["package.json", "package-lock.json", "foundry.toml"]}
+}

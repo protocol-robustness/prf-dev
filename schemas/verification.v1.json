@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://protocol-robustness.github.io/prf-dev/schemas/verification.v1",
+  "title": "Repair verification result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "artifact", "claims", "trust_policy_root", "claim_boundary"],
+  "properties": {
+    "schema": {"const": "repair-verification.v1"},
+    "status": {"enum": ["verified", "verified-with-limitations", "failed", "incomplete"]},
+    "artifact": {"type": "string"},
+    "claims": {"type": "array", "items": {"type": "object", "required": ["claim", "status", "required"], "properties": {"claim": {"type": "string"}, "status": {"enum": ["verified", "failed", "unknown", "not-applicable"]}, "required": {"type": "boolean"}}}},
+    "trust_policy_root": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "claim_boundary": {"type": "string"}
+  }
+}

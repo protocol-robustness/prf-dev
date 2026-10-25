@@ -1,0 +1,19 @@
+{
+  "schema": "prf-dev-repair-policy-definition.v1",
+  "policy_id": "prf-dev-repair-policy-v1",
+  "lifecycle": ["assessment", "authorization", "execution", "independent-review", "verification"],
+  "authorization": {
+    "must_precede_protected_rewrite": true,
+    "must_bind_repository_refs_revisions_operations_expiry": true,
+    "repair_authority_implies_publication_authority": false
+  },
+  "separation": {
+    "authorizer_executor_reviewer_must_be_distinct": true,
+    "credential_does_not_prove_process_identity": true,
+    "governance_acceptance_requires_three_members": true
+  },
+  "historical_records": {
+    "retroactive_authentication_permitted": false,
+    "legacy_evidence_claims_must_remain_qualified": true
+  }
+}

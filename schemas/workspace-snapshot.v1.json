@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://protocol-robustness.github.io/prf-dev/schemas/workspace-snapshot.v1",
+  "title": "PRF cross-repository workspace snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "profile",
+    "repositories",
+    "toolchain_sources",
+    "policy_roots",
+    "procedure",
+    "claim_boundary",
+    "snapshot_root",
+    "toolchain_catalog_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "workspace-snapshot.v1"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "profile": {
+      "type": "object"
+    },
+    "repository_catalog_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "repositories": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "toolchain_sources": {
+      "type": "object"
+    },
+    "policy_roots": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "procedure": {
+      "type": "object"
+    },
+    "claim_boundary": {
+      "type": "string"
+    },
+    "snapshot_root": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "toolchain_catalog_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "trust_policy_root": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "schema": "prf-dev-verification-policy.v1",
+  "policy_id": "prf-dev-verification-policy-v1",
+  "mode": "offline-read-only",
+  "trusted_inputs_must_be_independent": true,
+  "hashes_must_be_recomputed": true,
+  "signatures_must_be_checked_against_external_trust_policy": true,
+  "execution_from_reports_permitted": false,
+  "claim_statuses": ["verified", "failed", "unknown", "not-applicable"],
+  "exit_zero_means_all_required_claims_verified": true
+}

@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""Verify an exported tree matches the publication allowlist and has no obvious private material."""
+from pathlib import Path
+import re
+import sys
+
+root = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
+allowlist = root / "PUBLICATION.allowlist"
+if not allowlist.is_file() or allowlist.is_symlink():
+    raise SystemExit("missing or unsafe PUBLICATION.allowlist")
+allowed = {line.strip() for line in allowlist.read_text().splitlines() if line.strip() and not line.startswith("#")}
+actual = set()
+for path in root.rglob("*"):
+    rel = path.relative_to(root).as_posix()
+    if path.is_symlink():
+        raise SystemExit(f"symlink in publication tree: {rel}")
+    if path.is_file() and ".git/" not in rel:
+        actual.add(rel)
+missing, extra = allowed - actual, actual - allowed
+if missing or extra:
+    if missing: print("missing allowlisted files:", *sorted(missing), sep="\n  ", file=sys.stderr)
+    if extra: print("unexpected files:", *sorted(extra), sep="\n  ", file=sys.stderr)
+    raise SystemExit(1)
+for rel in sorted(actual):
+    data = (root / rel).read_bytes()
+    try: text = data.decode("utf-8")
+    except UnicodeDecodeError: continue
+    patterns = [(r"/" + "home/" + r"[^\s\"']+", "absolute home path"),
+                (r"-----BEGIN (?:OPENSSH|RSA|EC|DSA) PRIVATE KEY-----", "private key material"),
+                (r"(?i)(?:api[_-]?key|access[_-]?token|secret)\s*[:=]\s*[\"'][^\"']{12,}", "credential-like assignment")]
+    for pattern, label in patterns:
+        if re.search(pattern, text):
+            raise SystemExit(f"{label} detected in {rel}")
+print(f"publication tree verified: {len(actual)} allowlisted files")
