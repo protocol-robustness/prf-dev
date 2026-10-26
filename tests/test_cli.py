@@ -54,6 +54,19 @@ class PublicationAndSchemaTests(unittest.TestCase):
             "--issue", "PRO-94", "--reviewer", "reviewer-1", "--records-dir", "/tmp/records"])
         self.assertIs(trigger.func, cli.cmd_integration_trigger)
 
+    def test_routine_attestation_exposes_submit_review_stage_and_verify(self):
+        submit = cli.build_parser().parse_args(["routine", "submit", "--repo", "/tmp/repo",
+            "--repository-id", "prf", "--issue", "PRO-123", "--base-ref", "base",
+            "--candidate-ref", "candidate", "--signer", "coder", "--key", "/tmp/coder",
+            "--evidence", "/tmp/evidence", "--trust-policy", "/tmp/trust.json", "--output", "/tmp/submission.json"])
+        self.assertIs(submit.func, cli.cmd_routine_submit)
+        verify = cli.build_parser().parse_args(["routine", "verify", "--repo", "/tmp/repo",
+            "--repository-id", "prf", "--issue", "PRO-123", "--candidate-ref", "candidate",
+            "--staging-ref", "staging", "--submission", "/tmp/submission.json",
+            "--review", "/tmp/review.json", "--staging-receipt", "/tmp/stage.json",
+            "--trust-policy", "/tmp/trust.json"])
+        self.assertIs(verify.func, cli.cmd_routine_verify)
+
     def test_symlinked_artifact_is_not_accepted_as_regular_input(self):
         with tempfile.TemporaryDirectory() as raw:
             root=Path(raw); regular=root/"record.json"; regular.write_text("{}")

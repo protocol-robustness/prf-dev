@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://protocol-robustness.github.io/prf-dev/schemas/routine-records.v1",
+  "title": "Routine signed submission, review and staging receipt records",
+  "$defs": {
+    "signature": {
+      "type": "object", "additionalProperties": false,
+      "required": ["principal", "role", "namespace", "payload_digest", "file", "signed_at"],
+      "properties": {
+        "principal": {"type": "string", "pattern": "^[A-Za-z0-9_.@-]+$"},
+        "role": {"enum": ["routine-coder", "routine-reviewer", "routine-stager"]},
+        "namespace": {"type": "string"}, "payload_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "file": {"type": "string", "minLength": 1}, "signed_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "submission": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "repository_id", "issue", "base_commit", "candidate_commit", "candidate_tree", "included_commits", "trust_policy_root", "evidence_ref", "evidence_sha256", "created_at", "signature"],
+      "properties": {
+        "schema": {"const": "prf-dev.routine-submission.v1"}, "repository_id": {"type": "string"}, "issue": {"type": "string"},
+        "base_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "candidate_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "candidate_tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "included_commits": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[0-9a-f]{40}$"}},
+        "trust_policy_root": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "evidence_ref": {"type": "string"},
+        "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "created_at": {"type": "string", "format": "date-time"},
+        "signature": {"$ref": "#/$defs/signature"}
+      }
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "issue", "repository_id", "submission_digest", "trust_policy_root", "candidate_commit", "candidate_tree", "verdict", "evidence_ref", "evidence_sha256", "created_at", "signature"],
+      "properties": {
+        "schema": {"const": "prf-dev.routine-review.v1"}, "issue": {"type": "string"}, "repository_id": {"type": "string"},
+        "submission_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "trust_policy_root": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "candidate_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "candidate_tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "verdict": {"enum": ["approved", "rejected"]}, "evidence_ref": {"type": "string"}, "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "created_at": {"type": "string", "format": "date-time"}, "signature": {"$ref": "#/$defs/signature"}
+      }
+    },
+    "staging": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "issue", "repository_id", "submission_digest", "trust_policy_root", "review_digest", "source_commit", "source_tree", "staged_successor_commit", "staged_successor_tree", "staging_base_commit", "staging_result_commit", "staging_result_tree", "included_commits", "tests", "created_at", "signature"],
+      "properties": {
+        "schema": {"const": "prf-dev.routine-staging-receipt.v1"}, "issue": {"type": "string"}, "repository_id": {"type": "string"},
+        "submission_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "trust_policy_root": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "review_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "source_tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "staged_successor_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "staged_successor_tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "staging_base_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "staging_result_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "staging_result_tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "included_commits": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[0-9a-f]{40}$"}},
+        "tests": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "created_at": {"type": "string", "format": "date-time"}, "signature": {"$ref": "#/$defs/signature"}
+      }
+    }
+  }
+}

@@ -8,6 +8,7 @@ bin/dev
 bin/prf-dev
 src/prf_dev/__init__.py
 src/prf_dev/integration.py
+src/prf_dev/routine.py
 src/prf_dev/cli.py
 profiles/core.json
 profiles/evm.json
@@ -21,6 +22,8 @@ schemas/assessment.v1.json
 schemas/authorization.v1.json
 schemas/execution.v1.json
 schemas/review.v1.json
+schemas/routine-trust-policy.v1.json
+schemas/routine-records.v1.json
 schemas/trust-policy.v1.json
 schemas/verification.v1.json
 schemas/workspace-snapshot.v1.json
@@ -33,6 +36,7 @@ tests/fixtures/README.md
 docs/environment.md
 docs/ownership.md
 docs/repairs.md
+docs/routine-signing.md
 docs/workflows.md
 workflows/integration/README.md
 workflows/jj/README.md
@@ -42,3 +46,4 @@ tools/verify-publication
 .github/workflows/verify.yml
 schemas/integration-admission.v1.json
 tests/test_integration.py
+tests/test_routine.py

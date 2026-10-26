@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 
 from prf_dev.integration import IntegrationError, JJRepository, preflight as integration_preflight, promote as integration_promote, verify as integration_verify, trigger as integration_trigger
+from prf_dev.routine import RoutineError, submission as routine_submission, review as routine_review, staging as routine_staging, verify as routine_verify
 import shutil
 import subprocess
 import sys
@@ -625,6 +626,58 @@ def cmd_integration_trigger(args: argparse.Namespace) -> int:
     return 0 if result.get("status") in {"promoted", "already-promoted"} else 2
 
 
+def cmd_routine_submit(args: argparse.Namespace) -> int:
+    _check_schema(_load_json(Path(args.trust_policy)), "routine-trust-policy.v1.json")
+    value = routine_submission(JJRepository(args.repo), repository_id=args.repository_id, issue=args.issue,
+        base_ref=args.base_ref, candidate_ref=args.candidate_ref, principal=args.signer,
+        key=Path(args.key), evidence=Path(args.evidence), trust_path=Path(args.trust_policy), output=Path(args.output))
+    print(json.dumps(value, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_routine_review(args: argparse.Namespace) -> int:
+    _check_routine_record(Path(args.submission), "submission")
+    _check_schema(_load_json(Path(args.trust_policy)), "routine-trust-policy.v1.json")
+    value = routine_review(Path(args.submission), verdict=args.verdict, principal=args.signer,
+        key=Path(args.key), evidence=Path(args.evidence), trust_path=Path(args.trust_policy), output=Path(args.output))
+    print(json.dumps(value, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_routine_stage(args: argparse.Namespace) -> int:
+    _check_routine_record(Path(args.submission), "submission")
+    _check_routine_record(Path(args.review), "review")
+    _check_schema(_load_json(Path(args.trust_policy)), "routine-trust-policy.v1.json")
+    try:
+        tests = json.loads(Path(args.tests).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PrfDevError("--tests must be JSON array of passed qualification command strings") from exc
+    if not isinstance(tests, list) or any(not isinstance(test, str) for test in tests):
+        raise PrfDevError("--tests must be JSON array of passed qualification command strings")
+    value = routine_staging(JJRepository(args.repo), Path(args.submission), Path(args.review),
+        staging_base_ref=args.staging_base_ref, staged_ref=args.staged_ref, principal=args.signer,
+        key=Path(args.key), tests=tests, trust_path=Path(args.trust_policy), output=Path(args.output))
+    print(json.dumps(value, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_routine_verify(args: argparse.Namespace) -> int:
+    _check_routine_record(Path(args.submission), "submission")
+    _check_routine_record(Path(args.review), "review")
+    _check_routine_record(Path(args.staging_receipt), "staging")
+    _check_schema(_load_json(Path(args.trust_policy)), "routine-trust-policy.v1.json")
+    value = routine_verify(JJRepository(args.repo), Path(args.submission), Path(args.review), Path(args.staging_receipt),
+        trust_path=Path(args.trust_policy), repository_id=args.repository_id, issue=args.issue,
+        source_ref=args.candidate_ref, target_ref=args.staging_ref)
+    print(json.dumps(value, indent=2, sort_keys=True))
+    return 0 if value["status"] == "verified" else 1
+
+
+def _check_routine_record(path: Path, kind: str) -> None:
+    schema = _load_json(SCHEMA_DIR / "routine-records.v1.json")
+    _validate_schema_value(_load_json(path), schema["$defs"][kind], f"routine {kind}", schema)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="prf-dev", description="Reproducible, inspectable PRF workflows across repositories")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -681,6 +734,25 @@ def build_parser() -> argparse.ArgumentParser:
     trigger_cmd.add_argument("--reviewer", required=True)
     trigger_cmd.add_argument("--records-dir", required=True, help="auditable records directory outside the checkout")
     trigger_cmd.set_defaults(func=cmd_integration_trigger)
+    routine = sub.add_parser("routine", help="signed routine submission, review, staging and verification")
+    rs = routine.add_subparsers(dest="routine_command", required=True)
+    submit = rs.add_parser("submit")
+    for name in ("repo", "repository-id", "issue", "base-ref", "candidate-ref", "signer", "key", "evidence", "trust-policy", "output"):
+        submit.add_argument("--" + name, required=True)
+    submit.set_defaults(func=cmd_routine_submit)
+    review_cmd = rs.add_parser("review")
+    review_cmd.add_argument("--submission", required=True); review_cmd.add_argument("--verdict", choices=["approved", "rejected"], required=True)
+    for name in ("signer", "key", "evidence", "trust-policy", "output"):
+        review_cmd.add_argument("--" + name, required=True)
+    review_cmd.set_defaults(func=cmd_routine_review)
+    stage_cmd = rs.add_parser("stage")
+    for name in ("repo", "submission", "review", "staging-base-ref", "staged-ref", "signer", "key", "tests", "trust-policy", "output"):
+        stage_cmd.add_argument("--" + name, required=True)
+    stage_cmd.set_defaults(func=cmd_routine_stage)
+    verify_cmd = rs.add_parser("verify")
+    for name in ("repo", "repository-id", "issue", "candidate-ref", "staging-ref", "submission", "review", "staging-receipt", "trust-policy"):
+        verify_cmd.add_argument("--" + name, required=True)
+    verify_cmd.set_defaults(func=cmd_routine_verify)
     return parser
 
 
@@ -688,7 +760,7 @@ def main() -> int:
     try:
         args = build_parser().parse_args()
         return args.func(args)
-    except (PrfDevError, IntegrationError) as exc:
+    except (PrfDevError, IntegrationError, RoutineError) as exc:
         print(f"prf-dev: {exc}", file=sys.stderr)
         return 2
 
