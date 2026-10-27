@@ -724,8 +724,15 @@ def build_parser() -> argparse.ArgumentParser:
     verify_cmd.add_argument("--record", required=True)
     verify_cmd.add_argument("--output")
     verify_cmd.set_defaults(func=cmd_integration_verify)
-    trigger_cmd = integration_sub.add_parser("trigger", help="automatically qualify and promote a newly admitted staging candidate")
-    trigger_cmd.add_argument("--repo", required=True)
+    trigger_cmd = integration_sub.add_parser(
+        "trigger",
+        help="one-shot promotion; may move the integration bookmark when all checks pass",
+    )
+    trigger_cmd.add_argument(
+        "--repo",
+        required=True,
+        help="JJ workspace containing the source and target bookmarks; this command can move the target",
+    )
     trigger_cmd.add_argument("--source-ref", default="agent-c-staging")
     trigger_cmd.add_argument("--target-ref", default="integration")
     trigger_cmd.add_argument("--review-decision", required=True)

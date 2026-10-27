@@ -91,7 +91,7 @@ class JJRepository:
 
     def operation_id(self) -> str:
         value = self.jj("op", "log", "--no-graph", "-n", "1", "-T", "id")
-        if not _HEX40.fullmatch(value):
+        if not _HEX64.fullmatch(value):
             raise IntegrationError("could not identify the JJ operation created by promotion")
         return value
 
@@ -99,8 +99,8 @@ class JJRepository:
         self.jj("bookmark", "move", name, "--to", commit)
 
     def op_exists(self, operation_id: str) -> bool:
-        output = self.jj("op", "log", "--no-graph", "-T", "id")
-        return len(output) % 40 == 0 and operation_id in [output[i:i + 40] for i in range(0, len(output), 40)]
+        output = self.jj("op", "log", "--no-graph", "-T", "id ++ \"\\n\"")
+        return operation_id in output.splitlines()
 
 
 def _admission_blockers(document: Any, source: str, target: str, tree: str, commits: list[str], base_dir: Path) -> tuple[list[str], dict[str, Any]]:
