@@ -7,3 +7,7 @@ The record sequence is assessment, prior authorization, execution, independent r
 Verification is offline and non-executing. It recomputes PRF canonical roots, checks artifact digests and OpenSSH Ed25519 signatures, then emits claim-scoped statuses (`verified`, `failed`, `unknown`, `not-applicable`). Historical completeness and process identity beyond the signing credential remain `unknown` unless separate evidence establishes them.
 
 The synthetic example demonstrates reproducible output. Its fixture keys, if used, are test-only and confer no production authority. A successful replay alone does not establish authorization, historical preservation, independent review, or publication.
+
+## Local rebase repair notes
+
+The Sew PRO-43/PRO-45 local, unpublished JJ rebase and its conflict resolution are recorded in [the 2026-10-28 repair note](repair-reports/2026-10-28-sew-pro43-pro45-local-rebase.md). This note is operational provenance only; it is not a signed protected-repair bundle or publication authorization.
