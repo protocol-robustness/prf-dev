@@ -36,7 +36,10 @@ class PublicationAndSchemaTests(unittest.TestCase):
         with self.assertRaises(cli.PrfDevError):
             cli._validate_schema_value(signature, schema["$defs"]["signature"], "signature", schema)
 
-    def test_integration_gate_exposes_three_separate_commands(self):
+    def test_integration_gate_exposes_audit_preflight_promote_and_verify(self):
+        audit = cli.build_parser().parse_args(["integration", "audit-workspaces", "--repo", "/tmp/repo"])
+        self.assertEqual("audit-workspaces", audit.integration_command)
+        self.assertIs(audit.func, cli.cmd_integration_audit_workspaces)
         args = cli.build_parser().parse_args(["integration", "preflight", "--repo", "/tmp/repo",
                                               "--admission-record", "/tmp/admission.json"])
         self.assertEqual("integration", args.command)

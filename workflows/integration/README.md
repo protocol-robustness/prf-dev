@@ -6,11 +6,39 @@
 
 Preflight consumes a `prf-dev.integration-admission.v1` JSON record (schema: `schemas/integration-admission.v1.json`) produced by the staging admission owner. It binds the exact source/target commits, ordered set of reviewed commits, reviewer decision, staging receipt, validation commit/tree, issue IDs, and evidence digests. Evidence paths are relative to the admission record unless absolute; symlinks and digest mismatches fail closed. The record is an interoperability input, not a signature format. Until PRO-106 supplies authenticated admission records, reviewers and operators must treat provenance as procedural and retain that limitation.
 
+Preflight reports use `prf-dev.integration-preflight.v2`; v2 adds the exact workspace-lineage inventory. Promotion rejects older preflight reports and requires a fresh v2 digest.
+
 A legacy `symphony-issue-eligibility.v1` record is accepted only to report its blocker reasons. It can never qualify a promotion by itself. In particular, `diverged`, missing review, or missing staging receipt blocks the candidate.
 
 ## Commands
 
 Run from any working directory, with an explicit PRF JJ workspace and admission record. Keep all reports outside the checkout.
+
+Before staging admission, and again after integration promotion, inventory committed work in
+registered agent workspaces. The audit checks `agent-*` and `symphony-*-coding-*` workspaces
+against both protected refs. A commit present in staging but not integration is reported as
+staged and awaiting promotion; a commit absent from staging is outstanding agent work and must
+be included in a reviewed staging candidate or explicitly retained as work in progress. Do not
+silently discard an `attention` report. Retain the report with the staging/integration handoff.
+An `attention` exit status means at least one exact commit ID is missing from one or both refs;
+it does not decide whether that work is ready to land. Integration preflight embeds the same
+inventory in its report, and the preflight digest binds that inventory so promote rechecks it.
+Review the embedded inventory before promotion; `preflight.status: ready` does not mean unrelated
+workspace commits have been admitted.
+
+```sh
+prf-dev integration audit-workspaces \
+  --repo /path/to/prf-jj-workspace \
+  --staging-ref agent-c-staging \
+  --integration-ref integration \
+  --output /path/to/workspace-lineage-audit.json
+```
+
+This is an ancestry audit of non-empty commits reachable from currently registered matching
+workspaces. It reports commit IDs, trees, descriptions, conflicts, and membership in each ref.
+It does not scan uncommitted files, deleted/unregistered workspaces, or prove that a feature is
+behaviorally enabled. A legitimate rebase can replace a commit ID; review such cases as rewritten
+lineage instead of treating the old ID as a byte-for-byte landed commit.
 
 ```sh
 prf-dev integration preflight \

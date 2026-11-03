@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import re
 
-from prf_dev.integration import IntegrationError, JJRepository, preflight as integration_preflight, promote as integration_promote, verify as integration_verify, trigger as integration_trigger
+from prf_dev.integration import IntegrationError, JJRepository, audit_workspaces as integration_audit_workspaces, preflight as integration_preflight, promote as integration_promote, verify as integration_verify, trigger as integration_trigger
 from prf_dev.routine import RoutineError, submission as routine_submission, review as routine_review, staging as routine_staging, verify as routine_verify
 import shutil
 import subprocess
@@ -589,12 +589,17 @@ def _emit_integration_report(value: dict, output: str | None = None, repo_path: 
         except OSError as exc:
             raise PrfDevError(f"cannot write integration report: {exc}") from exc
     print(serialized, end="")
-    return 0 if value.get("status") in {"ready", "promoted", "verified"} else 2
+    return 0 if value.get("status") in {"ready", "promoted", "verified", "clear"} else 2
 
 
 def cmd_integration_preflight(args: argparse.Namespace) -> int:
     repo = JJRepository(args.repo)
     result = integration_preflight(repo, args.source_ref, args.target_ref, args.admission_record)
+    return _emit_integration_report(result, args.output, args.repo)
+
+
+def cmd_integration_audit_workspaces(args: argparse.Namespace) -> int:
+    result = integration_audit_workspaces(JJRepository(args.repo), args.staging_ref, args.integration_ref)
     return _emit_integration_report(result, args.output, args.repo)
 
 
@@ -711,6 +716,12 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--admission-record", required=True, help="review/staging/validation evidence JSON")
     preflight.add_argument("--output", help="write the deterministic report outside the repository")
     preflight.set_defaults(func=cmd_integration_preflight)
+    audit = integration_sub.add_parser("audit-workspaces", help="find committed agent changes not in staging or integration")
+    audit.add_argument("--repo", required=True, help="PRF JJ workspace path")
+    audit.add_argument("--staging-ref", default="agent-c-staging")
+    audit.add_argument("--integration-ref", default="integration")
+    audit.add_argument("--output", help="write the deterministic report outside the repository")
+    audit.set_defaults(func=cmd_integration_audit_workspaces)
     promote_cmd = integration_sub.add_parser("promote", help="fast-forward integration to a qualified staging candidate")
     promote_cmd.add_argument("--repo", required=True)
     promote_cmd.add_argument("--preflight-report", required=True)

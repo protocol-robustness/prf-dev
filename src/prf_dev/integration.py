@@ -12,6 +12,7 @@ from typing import Any
 
 _HEX40 = re.compile(r"^[0-9a-f]{40}$")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
+_WORKSPACE_ROW = re.compile(r"([^|;]+)\|([0-9a-f]{40});")
 
 
 class IntegrationError(Exception):
@@ -77,6 +78,39 @@ class JJRepository:
         if len(output) % 40:
             raise IntegrationError("JJ returned malformed commit identities for ancestry range")
         return [output[index:index + 40] for index in range(0, len(output), 40)]
+
+    def workspace_heads(self) -> list[dict[str, str]]:
+        """Return exact working-copy commits for all registered workspaces."""
+        output = self.jj("workspace", "list", "-T", 'name ++ "|" ++ target.commit_id() ++ ";"')
+        rows: list[dict[str, str]] = []
+        offset = 0
+        for match in _WORKSPACE_ROW.finditer(output):
+            if match.start() != offset:
+                raise IntegrationError("JJ returned malformed workspace identities")
+            rows.append({"name": match.group(1), "commit": match.group(2)})
+            offset = match.end()
+        if offset != len(output) or not rows:
+            raise IntegrationError("JJ returned malformed or empty workspace inventory")
+        return rows
+
+    def commits_outside(self, head: str, protected_ref: str) -> list[str]:
+        """Return commits reachable from a workspace head but not a protected ref."""
+        output = self.jj("log", "--no-graph", "-r",
+                         f"ancestors({head}) ~ ancestors({protected_ref})", "-T", "commit_id")
+        if len(output) % 40:
+            raise IntegrationError("JJ returned malformed commit identities for workspace audit")
+        return [output[index:index + 40] for index in range(0, len(output), 40)]
+
+    def workspace_commit(self, commit: str) -> dict[str, Any]:
+        description = self.jj("log", "--no-graph", "-r", commit, "-T", "description")
+        change_id = self.jj("log", "--no-graph", "-r", commit, "-T", "change_id")
+        empty = self.jj("log", "--no-graph", "-r", commit, "-T", "empty")
+        if empty not in {"true", "false"}:
+            raise IntegrationError(f"cannot determine whether workspace commit is empty: {commit}")
+        if not change_id:
+            raise IntegrationError(f"cannot determine JJ change identity for workspace commit: {commit}")
+        return {"commit": commit, "change_id": change_id, "tree": self.tree(commit), "description": description,
+                "empty": empty == "true", "conflicted": self.conflict(commit)}
 
     def conflict(self, commit: str) -> bool:
         value = self.jj("log", "--no-graph", "-r", commit, "-T", "conflict")
@@ -211,6 +245,7 @@ def _admission_blockers(document: Any, source: str, target: str, tree: str, comm
 def preflight(repo: JJRepository, source_ref: str, target_ref: str, admission_path: str | Path) -> dict[str, Any]:
     blockers: list[str] = []
     admission_file = Path(admission_path).expanduser().resolve()
+    workspace_audit: dict[str, Any] | None = None
     try:
         admission_bytes = admission_file.read_bytes()
         admission = json.loads(admission_bytes)
@@ -232,26 +267,81 @@ def preflight(repo: JJRepository, source_ref: str, target_ref: str, admission_pa
         for change in changes:
             if change["conflicted"]:
                 blockers.append(f"included commit contains conflicts: {change['commit']}")
+        workspace_audit = audit_workspaces(repo, source_ref, target_ref)
         admission_reasons, summary = _admission_blockers(admission, source, target, source_tree, commits, admission_file.parent)
         blockers.extend(admission_reasons)
         report: dict[str, Any] = {
-            "schema": "prf-dev.integration-preflight.v1",
+            "schema": "prf-dev.integration-preflight.v2",
             "status": "ready" if not blockers else "blocked",
             "repository": str(repo.root),
             "source": {"ref": source_ref, "commit": source, "tree": source_tree},
             "target": {"ref": target_ref, "commit": target, "tree": target_tree},
             "included_changes": changes,
+            "workspace_audit": workspace_audit,
             "admission_record": {"path": str(admission_file), "sha256": _sha(admission_bytes), **summary},
             "blockers": blockers,
         }
     except IntegrationError as exc:
-        report = {"schema": "prf-dev.integration-preflight.v1", "status": "blocked",
+        report = {"schema": "prf-dev.integration-preflight.v2", "status": "blocked",
                   "repository": str(repo.root), "source_ref": source_ref, "target_ref": target_ref,
                   "admission_record": {"path": str(admission_file), "sha256": _sha(admission_bytes)},
-                  "included_changes": [], "blockers": blockers + [str(exc)]}
+                  "included_changes": [], "workspace_audit": workspace_audit,
+                  "blockers": blockers + [str(exc)]}
     digest = _sha(_json_bytes(report))
     report["report_sha256"] = digest
     return report
+
+
+def audit_workspaces(repo: JJRepository, staging_ref: str = "agent-c-staging",
+                     integration_ref: str = "integration") -> dict[str, Any]:
+    """Find committed agent-workspace changes absent from staging or integration."""
+    staging = repo.resolve(staging_ref)
+    integration = repo.resolve(integration_ref)
+    workspaces = sorted(
+        (workspace for workspace in repo.workspace_heads()
+         if workspace["name"].startswith("agent-")
+         or (workspace["name"].startswith("symphony-") and "-coding-" in workspace["name"])),
+        key=lambda workspace: workspace["name"],
+    )
+    commit_cache: dict[str, dict[str, Any]] = {}
+    results: list[dict[str, Any]] = []
+    outstanding_ids: set[str] = set()
+    outstanding_occurrences = 0
+
+    for workspace in workspaces:
+        missing_staging = set(repo.commits_outside(workspace["commit"], staging))
+        missing_integration = set(repo.commits_outside(workspace["commit"], integration))
+        commits = []
+        for commit in sorted(missing_staging | missing_integration):
+            if commit not in commit_cache:
+                commit_cache[commit] = repo.workspace_commit(commit)
+            details = commit_cache[commit]
+            if details["empty"]:
+                continue
+            commits.append({**details, "in_staging": commit not in missing_staging,
+                            "in_integration": commit not in missing_integration})
+        if commits:
+            outstanding_ids.update(item["commit"] for item in commits)
+            outstanding_occurrences += len(commits)
+            results.append({"name": workspace["name"], "head": workspace["commit"],
+                            "unlanded_commits": commits})
+
+    return {
+        "schema": "prf-dev.integration-workspace-audit.v1",
+        "status": "attention" if outstanding_ids else "clear",
+        "repository": str(repo.root),
+        "staging": {"ref": staging_ref, "commit": staging},
+        "integration": {"ref": integration_ref, "commit": integration},
+        "workspace_filter": ["agent-*", "symphony-*-coding-*"],
+        "workspaces_scanned": len(workspaces),
+        "unlanded_commit_count": len(outstanding_ids),
+        "workspace_commit_occurrences": outstanding_occurrences,
+        "workspaces": results,
+        "claim_boundary": (
+            "audits non-empty commits reachable from currently registered matching workspaces; "
+            "does not discover deleted/unregistered workspaces or prove feature behavior"
+        ),
+    }
 
 
 def _repo_lock(repo: JJRepository) -> Path:
@@ -309,7 +399,8 @@ def promote(repo: JJRepository, source_ref: str, target_ref: str, admission_path
     actual_digest = _sha(_json_bytes(saved))
     if saved_digest != expected_preflight_sha256 or actual_digest != expected_preflight_sha256:
         raise IntegrationError("preflight report digest does not match the independently supplied pin")
-    if saved.get("status") != "ready" or saved.get("repository") != str(repo.root):
+    if (saved.get("schema") != "prf-dev.integration-preflight.v2"
+            or saved.get("status") != "ready" or saved.get("repository") != str(repo.root)):
         raise IntegrationError("preflight is not ready for this repository")
 
     lock_path = _repo_lock(repo)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import fcntl
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 import sys
@@ -16,6 +17,10 @@ SOURCE = "a" * 40
 TARGET = "b" * 40
 TREE = "c" * 40
 DIGEST = "d" * 64
+
+
+def run(args, cwd=None):
+    subprocess.run(args, cwd=cwd, check=True, capture_output=True, text=True)
 
 
 class FakeRepo:
@@ -45,6 +50,9 @@ class FakeRepo:
 
     def conflict(self, commit):
         return commit in self.conflicts
+
+    def workspace_heads(self):
+        return []
 
     def change(self, commit):
         return {"commit": commit, "description": "qualified change", "files": ["src/example"],
@@ -101,6 +109,7 @@ class IntegrationPromotionTests(unittest.TestCase):
         self.assertEqual("ready", plan["status"])
         self.assertEqual(SOURCE, plan["source"]["commit"])
         self.assertEqual(TREE, plan["source"]["tree"])
+        self.assertEqual("clear", plan["workspace_audit"]["status"])
         self.assertEqual(self.repo.included, [item["commit"] for item in plan["included_changes"]])
         self.assertEqual(plan["report_sha256"], integration._sha(integration._json_bytes({k:v for k,v in plan.items() if k != "report_sha256"})))
 
@@ -158,6 +167,7 @@ class IntegrationPromotionTests(unittest.TestCase):
             integration.promote(self.repo, "agent-c-staging", "integration", self.admission,
                                 self.report, plan["report_sha256"], self.record)
         self.assertEqual(TARGET, self.repo.refs["integration"])
+
 
     def test_lock_contention_blocks(self):
         plan = self.write_preflight()
@@ -232,6 +242,81 @@ class IntegrationPromotionTests(unittest.TestCase):
         self.assertEqual("blocked", result["status"])
         self.assertIn("exactly cover", result["blockers"][0])
         self.assertEqual(TARGET, self.repo.refs["integration"])
+
+
+class WorkspaceLineageAuditTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.repo_path = self.root / "repo"
+        run(["jj", "git", "init", "--colocate", str(self.repo_path)])
+        run(["jj", "-R", str(self.repo_path), "config", "set", "--repo", "user.name", "Fixture Agent"])
+        run(["jj", "-R", str(self.repo_path), "config", "set", "--repo", "user.email", "agent@example.invalid"])
+        self.repo = integration.JJRepository(self.repo_path)
+        run(["jj", "--ignore-working-copy", "-R", str(self.repo_path), "new"])
+        base = self.repo.resolve("@-")
+        run(["jj", "--ignore-working-copy", "-R", str(self.repo_path), "bookmark", "create", "integration", "-r", base])
+        run(["jj", "--ignore-working-copy", "-R", str(self.repo_path), "bookmark", "create", "agent-c-staging", "-r", base])
+        self.agent_path = self.root / "agent-a"
+        run(["jj", "-R", str(self.repo_path), "workspace", "add", "--name", "agent-a",
+             "--revision", base, str(self.agent_path)])
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def commit_agent_change(self, file_name: str, content: str) -> str:
+        (self.agent_path / file_name).write_text(content, encoding="utf-8")
+        run(["jj", "-R", str(self.agent_path), "new"])
+        return integration.JJRepository(self.agent_path).resolve("@-")
+
+    def test_detects_agent_commit_missing_from_staging_and_integration(self):
+        commit = self.commit_agent_change("feature.txt", "agent feature\n")
+        report = integration.audit_workspaces(self.repo)
+        self.assertEqual("attention", report["status"])
+        entry = report["workspaces"][0]["unlanded_commits"][0]
+        self.assertEqual(commit, entry["commit"])
+        self.assertFalse(entry["in_staging"])
+        self.assertFalse(entry["in_integration"])
+
+    def test_reports_staged_but_not_yet_integrated_agent_commit(self):
+        commit = self.commit_agent_change("feature.txt", "agent feature\n")
+        run(["jj", "--ignore-working-copy", "-R", str(self.repo_path), "bookmark", "set",
+             "agent-c-staging", "-r", commit])
+        report = integration.audit_workspaces(self.repo)
+        entry = report["workspaces"][0]["unlanded_commits"][0]
+        self.assertTrue(entry["in_staging"])
+        self.assertFalse(entry["in_integration"])
+
+    def test_clears_after_agent_commit_reaches_both_protected_refs(self):
+        commit = self.commit_agent_change("feature.txt", "agent feature\n")
+        for ref in ("agent-c-staging", "integration"):
+            run(["jj", "--ignore-working-copy", "-R", str(self.repo_path), "bookmark", "set", ref, "-r", commit])
+        report = integration.audit_workspaces(self.repo)
+        self.assertEqual("clear", report["status"])
+        self.assertEqual([], report["workspaces"])
+
+    def test_ignores_non_agent_workspaces(self):
+        other_path = self.root / "review-workspace"
+        base = self.repo.resolve("integration")
+        run(["jj", "-R", str(self.repo_path), "workspace", "add", "--name", "review-workspace",
+             "--revision", base, str(other_path)])
+        (other_path / "review-only.txt").write_text("review\n", encoding="utf-8")
+        run(["jj", "-R", str(other_path), "new"])
+        report = integration.audit_workspaces(self.repo)
+        self.assertEqual("clear", report["status"])
+        self.assertEqual(1, report["workspaces_scanned"])
+        self.assertEqual([], report["workspaces"])
+
+    def test_includes_symphony_coding_workspaces(self):
+        symphony_path = self.root / "symphony-coding"
+        base = self.repo.resolve("integration")
+        run(["jj", "-R", str(self.repo_path), "workspace", "add", "--name", "symphony-prf-coding-PRO-1",
+             "--revision", base, str(symphony_path)])
+        (symphony_path / "feature.txt").write_text("symphony agent feature\n", encoding="utf-8")
+        run(["jj", "-R", str(symphony_path), "new"])
+        report = integration.audit_workspaces(self.repo)
+        names = {item["name"] for item in report["workspaces"]}
+        self.assertIn("symphony-prf-coding-PRO-1", names)
 
 
 if __name__ == "__main__":
