@@ -4,7 +4,7 @@
 
 ## Admission contract
 
-Preflight consumes a `prf-dev.integration-admission.v1` JSON record (schema: `schemas/integration-admission.v1.json`) produced by the staging admission owner. It binds the exact source/target commits, ordered set of reviewed commits, reviewer decision, staging receipt, validation commit/tree, issue IDs, and evidence digests. Evidence paths are relative to the admission record unless absolute; symlinks and digest mismatches fail closed. The record is an interoperability input, not a signature format. Until PRO-106 supplies authenticated admission records, reviewers and operators must treat provenance as procedural and retain that limitation.
+Preflight consumes a `prf-dev.integration-admission.v2` JSON record (`schemas/integration-admission.v2.json`). It binds exact source/target commits and trees, the exact ordered included range, and digest-pinned review, staging, and validation evidence. The review artifact must conform to `schemas/integration-review.v1.json`; the aggregate staging artifact must conform to `schemas/staging-admission.v1.json`. Both artifacts must independently name the same source, target, trees, issue set, and complete ordered range as the admission record. Per-test receipts bind output evidence to the exact source tree; command names alone are insufficient. Evidence paths are relative to the admission record unless absolute; symlinks and digest mismatches fail closed. These records are interoperability evidence, not signatures. Review provenance remains procedural until authenticated admission is available.
 
 Preflight reports use `prf-dev.integration-preflight.v2`; v2 adds the exact workspace-lineage inventory. Promotion rejects older preflight reports and requires a fresh v2 digest.
 
@@ -23,6 +23,8 @@ silently discard an `attention` report. Retain the report with the staging/integ
 An `attention` exit status means at least one exact commit ID is missing from one or both refs;
 it does not decide whether that work is ready to land. Integration preflight embeds the same
 inventory in its report, and the preflight digest binds that inventory so promote rechecks it.
+The audit always uses the protected `agent-c-staging` and `integration` bookmarks, even when
+preflight's source is an immutable candidate commit ID.
 Review the embedded inventory before promotion; `preflight.status: ready` does not mean unrelated
 workspace commits have been admitted.
 
@@ -49,9 +51,9 @@ prf-dev integration preflight \
   --output /path/to/preflight.json
 ```
 
-Preflight uses JJ with `--ignore-working-copy`, reports exact commit and Git tree IDs, verifies forward ancestry and an empty reverse range, enumerates each included commit and its files, rejects conflicted commits, and checks admission/review/test evidence. It does not move bookmarks or run code. A report with `status: blocked` exits nonzero.
+Preflight uses JJ with `--ignore-working-copy`, reports exact commit and Git tree IDs, explicitly checks that integration is a member of `ancestors(staging)`, enumerates the ordered included range, inspects each commit against every parent, rejects conflicted commits, and checks admission/review/test evidence. It does not move bookmarks or run code. A report with `status: blocked` exits nonzero.
 
-Promotion verifies the report's independently supplied SHA-256, reacquires the current refs and admission evidence under a repository-scoped lock, and rejects any changed input before moving the target bookmark directly to the immutable source commit. It writes an exclusive promotion record before changing the ref and completes that record with the resulting commit/tree and JJ operation ID. It does not squash, rebase, clean workspaces, or push.
+Promotion verifies the report's independently supplied SHA-256, reacquires the current refs and admission evidence under a repository-scoped lock, and rejects any changed input before a conditional `jj bookmark move --from <expected-target> --to <source>`. It writes an exclusive in-progress promotion record before changing the ref and completes that record only after verifying the resulting commit/tree and JJ operation ID. Qualification test entries require digest-bound execution evidence; command names alone are not evidence. The trigger blocks unless its staging receipt supplies those execution receipts. It does not squash, rebase, clean workspaces, or push.
 
 After `prf-dev integration verify` succeeds, refresh the integration workspace working copy from the promoted bookmark. From the integration workspace, run `jj new agent-c-staging`; this leaves `@` as a new empty change whose parent is the promoted commit. Confirm with `jj status` and `jj log -r "@ | @-" --no-graph`. The promotion bookmark and verification record remain pinned to the promoted commit; the new empty working-copy change is only the workspace starting point for subsequent integration work. If the integration workspace has uncommitted changes, preserve or resolve them before switching it.
 
@@ -90,13 +92,13 @@ Keep `agent-c-staging` as one integrated lineage. In the Symphony qualification 
 
 After staging qualification, integration remains a separate operator-controlled action from the integration workspace. The established operation is to create a JJ change from `agent-c-staging` there (for example, `jj new agent-c-staging`) and follow the current integration qualification and publication process. The expensive full staging suite need not be rerun if the exact qualified tree is promoted unchanged; if integration changes the tree, qualify that resulting tree before promotion.
 
-`prf-dev integration trigger` is still an experimental one-shot fast-forward command, not the general batch integration workflow. It expects one issue receipt whose candidate is exactly the staging tip and whose admission is a fast-forward from the current integration tip. Batched Symphony receipts identify individual issue candidates and use batch-merge mode, so the trigger will block on them. Do not use it for batched staging until its admission contract is extended and qualified against disposable JJ repositories. The trigger does not implement the established `jj new agent-c-staging` operation and does not push `main`.
+`prf-dev integration trigger` remains a narrow one-issue, one-shot fast-forward command, not the general batch integration workflow. Its review input must be an independently prepared `prf-dev.integration-review.v1` record and its staging input must be an independently prepared `prf-dev.staging-admission.v1` record. Both must name exactly the requested issue and bind the same source/target commits, trees, and complete ordered range; the staging record also carries digest-bound execution receipts. The trigger only wraps and hashes these supplied records in the admission record. It never creates or upgrades review or staging approval documents. Legacy per-issue decision and staging receipt files are insufficient and block. Accumulated or multi-issue staging requires a separately prepared aggregate review/admission through the v2 contract. The trigger does not implement the established `jj new agent-c-staging` operation and does not push `main`.
 
 ## Trigger limits and verification status
 
-The trigger currently promotes by moving the target bookmark directly to the source commit. This is a fast-forward; it does not create a merge commit, run `jj new` in the `integration` workspace, or push `main`. It requires the staging receipt's old staging commit to equal the current integration commit, the receipt and review to bind the exact current staging tip, and the receipt to describe a fast-forward admission. If staging has accumulated other work since integration last moved, or staging admission used merge mode, the trigger blocks. It does not yet implement the general accumulated-staging workflow described above.
+The trigger, when supplied acceptable exact-range evidence, promotes by conditionally moving the target bookmark to the source commit. It does not create a merge commit, run `jj new` in the `integration` workspace, or push `main`. Accumulated staging still requires independent review and admission of the combined candidate; separate issue approvals are not combined by the trigger.
 
-`tests/test_integration.py` covers the trigger's happy path, idempotence, and an unreviewed-commit blocker using a fake repository. I found no test that runs the trigger against a disposable real JJ repository. Treat it as unqualified for production use until that real-JJ path, failure cases, and the intended staging-to-integration history are exercised.
+`tests/test_integration.py` retains fake-repository failure injection and exercises parent-aware inspection and promotion in disposable Git-backed JJ repositories, including two-parent resolution, stale bookmarks/evidence, conditional move failure, lock contention, and operation receipts. These tests do not exclude independent direct JJ writers; deployment still requires the single-writer policy below.
 
 For a controlled invocation, supply the exact evidence and paths explicitly:
 
@@ -116,4 +118,4 @@ The trigger does not push or move any other bookmark. An already promoted candid
 
 ## Limits
 
-The repository-scoped lock coordinates `prf-dev` promotions sharing the same JJ store; manual bookmark changes do not participate in that lock, so the immediate pre-move ref check and post-move identity check remain necessary. The recorded operation ID proves a JJ operation is present in local history, not who authorized it. This gate does not provide signatures, reviewer identity authentication, publication approval, or remote `main` verification.
+The repository-scoped lock coordinates `prf-dev` promotions sharing the same JJ store; all authorized integration promotion owners must route through this gate, and staging updates must be serialized by their existing Symphony/jjq owner. Operators must drain/hold that staging writer while preparing a promotion. Direct JJ bookmark commands do not participate in either lock. The conditional target move prevents overwriting a stale integration target, but an independent writer can still change staging between checks or bypass the gate; this remains an operational single-writer limitation. The recorded operation ID proves a JJ operation is present in local history, not who authorized it. This gate does not provide signatures, reviewer identity authentication, publication approval, or remote `main` verification.

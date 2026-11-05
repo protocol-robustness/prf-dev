@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "prf-dev.staging-admission.v1",
+  "title": "Aggregate staging admission and qualification for one exact candidate range",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "status",
+    "source_commit",
+    "target_commit",
+    "source_tree",
+    "target_tree",
+    "included_commits",
+    "issues",
+    "validation_evidence"
+  ],
+  "properties": {
+    "schema": {
+      "const": "prf-dev.staging-admission.v1"
+    },
+    "status": {
+      "const": "admitted"
+    },
+    "source_commit": {
+      "$ref": "#/$defs/sha1"
+    },
+    "target_commit": {
+      "$ref": "#/$defs/sha1"
+    },
+    "source_tree": {
+      "$ref": "#/$defs/sha1"
+    },
+    "target_tree": {
+      "$ref": "#/$defs/sha1"
+    },
+    "included_commits": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/sha1"
+      }
+    },
+    "issues": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "validation_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/test" }
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sha1": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "status", "tree", "ref", "sha256"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "status": { "const": "passed" },
+        "tree": { "$ref": "#/$defs/sha1" },
+        "ref": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

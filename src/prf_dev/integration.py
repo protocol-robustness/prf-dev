@@ -13,6 +13,7 @@ from typing import Any
 _HEX40 = re.compile(r"^[0-9a-f]{40}$")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _WORKSPACE_ROW = re.compile(r"([^|;]+)\|([0-9a-f]{40});")
+_OPID = re.compile(r"^[0-9a-f]{128}$")
 
 
 class IntegrationError(Exception):
@@ -74,10 +75,18 @@ class JJRepository:
         return value
 
     def between(self, ancestor: str, descendant: str) -> list[str]:
-        output = self.jj("log", "--no-graph", "-r", f"{ancestor}..{descendant}", "-T", "commit_id")
-        if len(output) % 40:
-            raise IntegrationError("JJ returned malformed commit identities for ancestry range")
-        return [output[index:index + 40] for index in range(0, len(output), 40)]
+        output = self.jj("log", "--no-graph", "--reversed", "-r", f"{ancestor}..{descendant}", "-T", 'commit_id ++ "\\n"')
+        values = output.splitlines()
+        if any(not _HEX40.fullmatch(value) for value in values) or len(values) != len(set(values)):
+            raise IntegrationError("JJ returned malformed or duplicate commit identities for ancestry range")
+        return values
+
+    def is_ancestor(self, ancestor: str, descendant: str) -> bool:
+        output = self.jj("log", "--no-graph", "-r", f"({ancestor}) & ancestors({descendant})", "-T", 'commit_id ++ "\\n"')
+        values = output.splitlines()
+        if any(not _HEX40.fullmatch(value) for value in values) or len(values) > 1:
+            raise IntegrationError("JJ returned malformed ancestry membership")
+        return values == [ancestor]
 
     def workspace_heads(self) -> list[dict[str, str]]:
         """Return exact working-copy commits for all registered workspaces."""
@@ -119,25 +128,39 @@ class JJRepository:
         return value == "true"
 
     def change(self, commit: str) -> dict[str, Any]:
-        description = self.jj("log", "--no-graph", "-r", commit, "-T", "description")
-        files = self.jj("diff", "--from", f"{commit}-", "--to", commit, "--summary").splitlines()
-        return {"commit": commit, "description": description, "files": files, "conflicted": self.conflict(commit)}
+        resolved = self.resolve(commit)
+        description = self.jj("log", "--no-graph", "-r", resolved, "-T", "description")
+        parents_output = self.jj("log", "--no-graph", "-r", resolved, "-T", 'parents.map(|p| p.commit_id()).join(" ")')
+        parents = parents_output.split() if parents_output else []
+        if any(not _HEX40.fullmatch(parent) for parent in parents) or len(parents) != len(set(parents)):
+            raise IntegrationError(f"JJ returned malformed parent identities for {resolved}")
+        files: set[str] = set()
+        for parent in parents:
+            for row in self.jj("diff", "--from", parent, "--to", resolved, "--summary").splitlines():
+                if not row or " " not in row:
+                    raise IntegrationError(f"JJ returned malformed diff summary for {resolved}")
+                status, path = row.split(" ", 1)
+                if status not in {"A", "D", "M", "R", "C"} or not path:
+                    raise IntegrationError(f"JJ returned ambiguous diff summary for {resolved}")
+                files.add(row)
+        return {"commit": resolved, "description": description, "files": sorted(files), "conflicted": self.conflict(resolved)}
 
     def operation_id(self) -> str:
         value = self.jj("op", "log", "--no-graph", "-n", "1", "-T", "id")
-        if not _HEX64.fullmatch(value):
-            raise IntegrationError("could not identify the JJ operation created by promotion")
+        if not _OPID.fullmatch(value):
+            raise IntegrationError(f"could not identify the JJ operation created by promotion: {value!r}")
         return value
 
-    def move_bookmark(self, name: str, commit: str) -> None:
-        self.jj("bookmark", "move", name, "--to", commit)
+    def move_bookmark(self, name: str, expected_old: str, commit: str) -> None:
+        self.jj("bookmark", "move", name, "--from", expected_old, "--to", commit)
 
     def op_exists(self, operation_id: str) -> bool:
         output = self.jj("op", "log", "--no-graph", "-T", "id ++ \"\\n\"")
         return operation_id in output.splitlines()
 
 
-def _admission_blockers(document: Any, source: str, target: str, tree: str, commits: list[str], base_dir: Path) -> tuple[list[str], dict[str, Any]]:
+def _admission_blockers(document: Any, source: str, target: str, tree: str, target_tree: str,
+                        commits: list[str], base_dir: Path) -> tuple[list[str], dict[str, Any]]:
     blockers: list[str] = []
     summary: dict[str, Any] = {"schema": None, "issues": [], "evidence": [], "tests": [], "reviewer": None}
     if not isinstance(document, dict):
@@ -158,39 +181,94 @@ def _admission_blockers(document: Any, source: str, target: str, tree: str, comm
         summary["reviewer"] = review.get("reviewer")
         return blockers, summary
 
-    if document.get("schema") != "prf-dev.integration-admission.v1":
+    if document.get("schema") != "prf-dev.integration-admission.v2":
         return ["unsupported admission record schema"], summary
-    expected_fields = {"schema", "status", "source_commit", "target_commit", "reviewed_commits",
+    expected_fields = {"schema", "status", "source_commit", "source_tree", "target_commit", "target_tree", "reviewed_commits",
                        "review", "staging", "qualification", "issues", "evidence"}
     if set(document) != expected_fields:
-        blockers.append("admission record fields do not match the v1 contract")
+        blockers.append("admission record fields do not match the v2 contract")
 
-    def check_file_ref(item: Any, label: str) -> None:
+    def evidence_path(item: Any, label: str) -> Path | None:
         if not isinstance(item, dict) or not isinstance(item.get("ref"), str):
             blockers.append(f"{label} evidence reference is missing")
-            return
+            return None
         digest = str(item.get("sha256", ""))
         if not _HEX64.fullmatch(digest):
             blockers.append(f"{label} evidence digest is malformed")
-            return
+            return None
         path = Path(item["ref"]).expanduser()
         if not path.is_absolute():
             path = base_dir / path
         try:
             if path.is_symlink() or not path.is_file() or _sha(path.read_bytes()) != digest:
                 blockers.append(f"{label} evidence reference is missing or has a digest mismatch")
+                return None
+            return path
         except OSError:
             blockers.append(f"{label} evidence reference cannot be read")
+            return None
+
+    def check_file_ref(item: Any, label: str) -> None:
+        evidence_path(item, label)
+
+    def check_aggregate_ref(item: Any, label: str, expected: dict[str, Any]) -> None:
+        path = evidence_path(item, label)
+        if path is None:
+            return
+        try:
+            actual = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            blockers.append(f"{label} aggregate evidence is not valid JSON")
+            return
+        if label != "staging":
+            if not isinstance(actual, dict) or actual != expected:
+                blockers.append(f"{label} aggregate evidence does not bind the exact source, target, trees, and commit range")
+            return
+        if not isinstance(actual, dict):
+            blockers.append(f"{label} aggregate evidence does not bind the exact source, target, trees, and commit range")
+            return
+        actual_validation = actual.pop("validation_evidence", None)
+        if actual != expected:
+            blockers.append(f"{label} aggregate evidence does not bind the exact source, target, trees, and commit range")
+            return
+        expected_tests = qualification.get("tests") if isinstance(qualification, dict) else None
+        if (not isinstance(actual_validation, list) or not isinstance(expected_tests, list)
+                or len(actual_validation) != len(expected_tests)):
+            blockers.append("staging aggregate validation receipts do not match admission qualification")
+            return
+        for index, (actual_test, expected_test) in enumerate(zip(actual_validation, expected_tests, strict=True)):
+            required = {"command", "status", "tree", "ref", "sha256"}
+            if (not isinstance(actual_test, dict) or set(actual_test) != required
+                    or not isinstance(expected_test, dict) or set(expected_test) != required
+                    or any(not isinstance(record.get(key), str)
+                           for record in (actual_test, expected_test) for key in required)
+                    or any(actual_test.get(key) != expected_test.get(key)
+                           for key in ("command", "status", "tree", "sha256"))):
+                blockers.append(f"staging aggregate validation receipt {index} differs from qualification")
+                continue
+            actual_ref = Path(actual_test["ref"]).expanduser()
+            if not actual_ref.is_absolute():
+                actual_ref = path.parent / actual_ref
+            expected_ref = Path(expected_test["ref"]).expanduser()
+            if not expected_ref.is_absolute():
+                expected_ref = base_dir / expected_ref
+            try:
+                if (actual_ref.is_symlink() or expected_ref.is_symlink()
+                        or actual_ref.resolve() != expected_ref.resolve()):
+                    blockers.append(f"staging aggregate validation receipt {index} reference differs from qualification")
+            except OSError:
+                blockers.append(f"staging aggregate validation receipt {index} reference cannot be resolved")
     if document.get("status") != "admitted":
         blockers.append("candidate is not marked admitted")
-    if document.get("source_commit") != source or document.get("target_commit") != target:
+    if (document.get("source_commit") != source or document.get("target_commit") != target
+            or document.get("source_tree") != tree or document.get("target_tree") != target_tree):
         blockers.append("admission record source/target commits do not match current bookmarks")
     review = document.get("review")
     if not isinstance(review, dict):
-        blockers.append("review evidence fields do not match the v1 contract")
+        blockers.append("review evidence fields do not match the v2 contract")
         review = {}
-    elif set(review) != {"status", "candidate_commit", "reviewer", "ref", "sha256"}:
-        blockers.append("review evidence fields do not match the v1 contract")
+    elif set(review) != {"status", "candidate_commit", "reviewer", "reviewed_commits", "ref", "sha256"}:
+        blockers.append("review evidence fields do not match the v2 contract")
     if (review.get("status") != "approved" or review.get("candidate_commit") != source
             or not isinstance(review.get("reviewer"), str) or not review["reviewer"].strip()
             or not _HEX64.fullmatch(str(review.get("sha256", "")))):
@@ -199,34 +277,56 @@ def _admission_blockers(document: Any, source: str, target: str, tree: str, comm
     reviewed = document.get("reviewed_commits")
     if not isinstance(reviewed, list) or reviewed != commits:
         blockers.append("review does not cover the exact ordered set of included commits")
+    if review.get("reviewed_commits") != commits:
+        blockers.append("review record does not bind the exact ordered set of included commits")
+    check_aggregate_ref(review, "review", {
+        "schema": "prf-dev.integration-review.v1", "status": "approved",
+        "source_commit": source, "target_commit": target, "source_tree": tree,
+        "target_tree": target_tree, "reviewed_commits": commits,
+        "reviewer": review.get("reviewer"), "issues": document.get("issues"),
+    })
     qualification = document.get("qualification")
     if not isinstance(qualification, dict):
-        blockers.append("qualification evidence fields do not match the v1 contract")
+        blockers.append("qualification evidence fields do not match the v2 contract")
         qualification = {}
     elif set(qualification) != {"status", "commit", "tree", "tests"}:
-        blockers.append("qualification evidence fields do not match the v1 contract")
+        blockers.append("qualification evidence fields do not match the v2 contract")
     if qualification.get("status") != "passed" or qualification.get("commit") != source or qualification.get("tree") != tree:
         blockers.append("integration qualification is missing or does not bind the exact staged tree")
     tests = qualification.get("tests")
     if (not isinstance(tests, list) or not tests
-            or any(not isinstance(test, dict) or set(test) != {"command", "status", "tree"}
+            or any(not isinstance(test, dict) or set(test) != {"command", "status", "tree", "ref", "sha256"}
                    or not isinstance(test.get("command"), str) or not test.get("command")
                    or test.get("status") != "passed" or test.get("tree") != tree for test in tests)):
-        blockers.append("passing validation evidence for the exact staged tree is missing")
+        blockers.append("passing validation execution receipts for the exact staged tree are missing")
+    else:
+        for index, test in enumerate(tests):
+            check_file_ref(test, f"qualification.tests[{index}]")
     stage = document.get("staging")
     if not isinstance(stage, dict):
-        blockers.append("staging evidence fields do not match the v1 contract")
+        blockers.append("staging evidence fields do not match the v2 contract")
         stage = {}
-    elif set(stage) != {"status", "source_commit", "target_commit", "ref", "sha256"}:
-        blockers.append("staging evidence fields do not match the v1 contract")
+    elif set(stage) != {"status", "source_commit", "target_commit", "source_tree", "target_tree", "included_commits", "ref", "sha256"}:
+        blockers.append("staging evidence fields do not match the v2 contract")
     if (stage.get("status") != "admitted" or stage.get("source_commit") != source
             or stage.get("target_commit") != target
+            or stage.get("source_tree") != tree
+            or not _HEX40.fullmatch(str(stage.get("target_tree", "")))
+            or stage.get("included_commits") != commits
             or not _HEX64.fullmatch(str(stage.get("sha256", "")))):
         blockers.append("staging admission evidence is missing or stale")
     check_file_ref(stage, "staging")
+    check_aggregate_ref(stage, "staging", {
+        "schema": "prf-dev.staging-admission.v1", "status": "admitted",
+        "source_commit": source, "target_commit": target, "source_tree": tree,
+        "target_tree": stage.get("target_tree"), "included_commits": commits,
+        "issues": document.get("issues"),
+    })
     issues = document.get("issues")
     if not isinstance(issues, list) or not issues or any(not isinstance(issue, str) or not issue.strip() for issue in issues):
         blockers.append("associated issue IDs are missing")
+    elif len(issues) != len(set(issues)):
+        blockers.append("associated issue IDs must be unique")
     evidence = document.get("evidence")
     if not isinstance(evidence, list) or not evidence:
         blockers.append("content-addressed evidence references are missing")
@@ -256,19 +356,23 @@ def preflight(repo: JJRepository, source_ref: str, target_ref: str, admission_pa
         source, target = repo.resolve(source_ref), repo.resolve(target_ref)
         source_tree, target_tree = repo.tree(source), repo.tree(target)
         commits = repo.between(target, source)
-        reverse = repo.between(source, target)
         if repo.conflict(target):
             blockers.append(f"integration target contains conflicts: {target}")
-        if reverse:
-            blockers.append("source is not a fast-forward descendant of target")
+        if source == target:
+            blockers.append("source and target are identical; no promotion is allowed")
+        elif not repo.is_ancestor(target, source):
+            blockers.append("integration target is not an ancestor of staged source")
         if not commits:
             blockers.append("source and target contain no promotable changes")
         changes = [repo.change(commit) for commit in commits]
         for change in changes:
             if change["conflicted"]:
                 blockers.append(f"included commit contains conflicts: {change['commit']}")
-        workspace_audit = audit_workspaces(repo, source_ref, target_ref)
-        admission_reasons, summary = _admission_blockers(admission, source, target, source_tree, commits, admission_file.parent)
+        # The submitted source may be an immutable candidate ID. The lineage
+        # audit must still compare agent workspaces to the protected bookmarks.
+        workspace_audit = audit_workspaces(repo)
+        admission_reasons, summary = _admission_blockers(admission, source, target, source_tree, target_tree,
+                                                         commits, admission_file.parent)
         blockers.extend(admission_reasons)
         report: dict[str, Any] = {
             "schema": "prf-dev.integration-preflight.v2",
@@ -429,12 +533,17 @@ def promote(repo: JJRepository, source_ref: str, target_ref: str, admission_path
                   "issues": fresh["admission_record"].get("issues", []), "tests": fresh["admission_record"].get("tests", [])}
         _write_json_exclusive(record_file, record)
         try:
-            repo.move_bookmark(target_ref, fresh["source"]["commit"])
+            if (repo.resolve(source_ref) != fresh["source"]["commit"]
+                    or repo.resolve(target_ref) != fresh["target"]["commit"]):
+                raise IntegrationError("source or target bookmark changed immediately before conditional move")
+            repo.move_bookmark(target_ref, fresh["target"]["commit"], fresh["source"]["commit"])
             operation_id = repo.operation_id()
             final_commit = repo.resolve(target_ref)
             final_tree = repo.tree(final_commit)
             if final_commit != fresh["source"]["commit"] or final_tree != fresh["source"]["tree"]:
                 raise IntegrationError("post-move bookmark or tree differs from the qualified candidate")
+            if not repo.op_exists(operation_id):
+                raise IntegrationError("JJ operation receipt is not present in operation history")
             record.update({"status": "promoted", "result": {"ref": target_ref, "commit": final_commit, "tree": final_tree},
                            "jj_operation_id": operation_id})
             _replace_json(record_file, record)
@@ -479,6 +588,13 @@ def trigger(repo: JJRepository, source_ref: str, target_ref: str, review_path: s
             staging_path: str | Path, issue: str, reviewer: str, records_dir: str | Path) -> dict[str, Any]:
     """Auto-promote only a newly admitted, exactly reviewed fast-forward candidate."""
     records = Path(records_dir).expanduser().resolve()
+    try:
+        records.relative_to(repo.root)
+    except ValueError:
+        pass
+    else:
+        return {"schema": "prf-dev.integration-trigger.v1", "status": "blocked",
+                "blockers": ["integration records must be outside the checked-out repository"]}
     records.mkdir(parents=True, exist_ok=True)
     source = repo.resolve(source_ref)
     target = repo.resolve(target_ref)
@@ -504,74 +620,113 @@ def trigger(repo: JJRepository, source_ref: str, target_ref: str, review_path: s
                 "verification": verified}
 
     try:
-        review_file = Path(review_path).expanduser().resolve()
+        review_input = Path(review_path).expanduser()
+        stage_input = Path(staging_path).expanduser()
+        if review_input.is_symlink() or stage_input.is_symlink():
+            return blocked("review and staging evidence must not be symlinks")
+        review_file = review_input.resolve()
         review_bytes = review_file.read_bytes()
         review = json.loads(review_bytes)
-        stage_file = Path(staging_path).expanduser().resolve()
+        stage_file = stage_input.resolve()
         stage_bytes = stage_file.read_bytes()
         stage = json.loads(stage_bytes)
     except (OSError, json.JSONDecodeError) as exc:
         return blocked(f"cannot read valid review and staging evidence: {type(exc).__name__}")
 
-    review_fields = {"schema", "issue", "verdict", "candidate_sha", "base_sha", "reviewed_tests", "finding"}
+    review_fields = {"schema", "status", "source_commit", "target_commit", "source_tree", "target_tree",
+                     "reviewed_commits", "reviewer", "issues"}
+    stage_fields = {"schema", "status", "source_commit", "target_commit", "source_tree", "target_tree",
+                    "included_commits", "issues", "validation_evidence"}
     if (not isinstance(review, dict) or set(review) != review_fields
-            or review.get("schema") != "symphony-pilot-review-decision.v1"
-            or review.get("issue") != issue or review.get("verdict") != "approved"):
-        return blocked("review decision is not a valid approved record for the admitted issue")
-    if not isinstance(stage, dict) or stage.get("schema") != "symphony-staging-receipt.v1" or stage.get("issue") != issue:
-        return blocked("staging receipt is not a valid receipt for the admitted issue")
+            or review.get("schema") != "prf-dev.integration-review.v1"
+            or review.get("status") != "approved"):
+        return blocked("review input must be an exact-range prf-dev.integration-review.v1 record")
+    if (not isinstance(stage, dict) or set(stage) != stage_fields
+            or stage.get("schema") != "prf-dev.staging-admission.v1"
+            or stage.get("status") != "admitted"):
+        return blocked("staging input must be an exact-range prf-dev.staging-admission.v1 record")
+    if not isinstance(issue, str) or not issue.strip():
+        return blocked("single-issue trigger requires a non-empty issue identifier")
     if not isinstance(reviewer, str) or not reviewer.strip():
         return blocked("SYMPHONY_REVIEWER_ID is required to identify the independent reviewer")
-    if stage.get("new_staging_sha") != source or stage.get("validated_tree") != source_tree:
-        return blocked("staging receipt does not bind the current staging tip and its exact tree")
-    if (stage.get("candidate_sha") != source or stage.get("base_sha") != target
-            or stage.get("staging_bookmark") != source_ref):
-        return blocked("staging receipt candidate, base, or bookmark does not match the promotion refs")
-    if stage.get("old_staging_sha") != target:
-        return blocked("staging admission did not start at the current integration tip")
-    if review.get("candidate_sha") != source or review.get("base_sha") != target:
-        return blocked("review decision does not bind the exact integration-to-staging candidate")
-    if stage.get("integration_mode") != "fast-forward":
-        return blocked("automatic integration requires a fast-forward staging admission")
+    if review.get("reviewer") != reviewer.strip():
+        return blocked("reviewer identity does not match the exact-range review record")
+    if review.get("issues") != [issue] or stage.get("issues") != [issue]:
+        return blocked("single-issue trigger requires both aggregate records to name exactly that issue")
 
     try:
         included = repo.between(target, source)
-        reverse = repo.between(source, target)
     except IntegrationError as exc:
         return blocked(str(exc))
-    stack = stage.get("candidate_commits")
-    stack_ids = [item.get("sha") for item in stack] if isinstance(stack, list) and all(isinstance(item, dict) for item in stack) else []
-    if reverse or not included:
+    if not repo.is_ancestor(target, source) or not included:
         return blocked("staging tip is not a non-empty fast-forward descendant of integration")
-    if stack_ids != included:
+    if review.get("reviewed_commits") != included:
         return blocked("reviewed commits do not exactly cover the ordered integration-to-staging range")
-    if (not isinstance(stage.get("tests"), list) or not stage["tests"]
-            or any(not isinstance(command, str) or not command.strip() for command in stage["tests"])):
-        return blocked("staging receipt has no recorded validation commands")
+    expected_identity = {
+        "source_commit": source, "target_commit": target,
+        "source_tree": source_tree, "target_tree": target_tree,
+    }
+    if any(any(record.get(key) != value for key, value in expected_identity.items())
+           for record in (review, stage)):
+        return blocked("review or staging record does not bind the current commits and trees")
+    if stage.get("included_commits") != included:
+        return blocked("staging admission does not bind the exact ordered integration-to-staging range")
+    executions = stage.get("validation_evidence")
+    if (not isinstance(executions, list) or not executions
+            or any(not isinstance(item, dict) or set(item) != {"command", "status", "tree", "ref", "sha256"}
+                   or item.get("status") != "passed" or item.get("tree") != source_tree
+                   or not isinstance(item.get("command"), str) or not item.get("command")
+                   or not isinstance(item.get("ref"), str) or not item.get("ref")
+                   or not _HEX64.fullmatch(str(item.get("sha256", ""))) for item in executions)):
+        return blocked("staging receipt lacks digest-bound validation execution evidence for the exact tree")
+
+    normalized_executions = []
+    for item in executions:
+        raw_path = Path(item["ref"]).expanduser()
+        if not raw_path.is_absolute():
+            raw_path = stage_file.parent / raw_path
+        try:
+            if raw_path.is_symlink() or not raw_path.is_file():
+                return blocked(f"validation execution evidence is missing or unsafe: {raw_path}")
+            normalized_path = raw_path.resolve()
+            digest = _sha(normalized_path.read_bytes())
+        except OSError:
+            return blocked(f"validation execution evidence cannot be read: {raw_path}")
+        if digest != item["sha256"]:
+            return blocked(f"validation execution evidence digest mismatch: {raw_path}")
+        normalized_executions.append({**item, "ref": str(normalized_path)})
 
     evidence = []
-    evidence_paths = [review_file, stage_file]
+    evidence_paths = [review_file, stage_file, *[Path(item["ref"]) for item in normalized_executions]]
     log_value = stage.get("log")
     if isinstance(log_value, str) and log_value:
-        evidence_paths.append(Path(log_value).expanduser().resolve())
+        log_path = Path(log_value).expanduser()
+        if not log_path.is_absolute():
+            log_path = stage_file.parent / log_path
+        evidence_paths.append(log_path)
     for path in evidence_paths:
         try:
             if path.is_symlink() or not path.is_file():
                 return blocked(f"required evidence file is missing or unsafe: {path}")
-            evidence.append({"ref": str(path), "sha256": _sha(path.read_bytes())})
+            resolved_path = path.resolve()
+            evidence.append({"ref": str(resolved_path), "sha256": _sha(resolved_path.read_bytes())})
         except OSError:
             return blocked(f"required evidence file cannot be read: {path}")
 
     admission = {
-        "schema": "prf-dev.integration-admission.v1", "status": "admitted",
-        "source_commit": source, "target_commit": target, "reviewed_commits": included,
+        "schema": "prf-dev.integration-admission.v2", "status": "admitted",
+        "source_commit": source, "source_tree": source_tree,
+        "target_commit": target, "target_tree": target_tree,
+        "reviewed_commits": included,
         "review": {"status": "approved", "candidate_commit": source, "reviewer": reviewer.strip(),
+                   "reviewed_commits": included,
                    "ref": str(review_file), "sha256": _sha(review_bytes)},
         "staging": {"status": "admitted", "source_commit": source, "target_commit": target,
+                    "source_tree": source_tree, "target_tree": target_tree,
+                    "included_commits": included,
                     "ref": str(stage_file), "sha256": _sha(stage_bytes)},
         "qualification": {"status": "passed", "commit": source, "tree": source_tree,
-                          "tests": [{"command": str(command), "status": "passed", "tree": source_tree}
-                                    for command in stage["tests"]]},
+                          "tests": normalized_executions},
         "issues": [issue], "evidence": evidence,
     }
     admission_bytes = _json_bytes(admission)

@@ -45,5 +45,8 @@ tools/export-publication
 tools/verify-publication
 .github/workflows/verify.yml
 schemas/integration-admission.v1.json
+schemas/integration-admission.v2.json
 tests/test_integration.py
 tests/test_routine.py
+schemas/integration-review.v1.json
+schemas/staging-admission.v1.json
