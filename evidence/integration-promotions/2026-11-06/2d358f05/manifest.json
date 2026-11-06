@@ -1,0 +1,67 @@
+{
+  "files": [
+    {
+      "name": "admission-record.json",
+      "sha256": "ffff18b0c90fbaca25901f73e9c2f68876dac10bb9daa802e5c67ba32175fe0b"
+    },
+    {
+      "name": "preflight-report.json",
+      "sha256": "0f994fbd475dfe781ca871230f82732adb89e81fae1fba776e2ea4b5377b6614"
+    },
+    {
+      "name": "promotion-record.json",
+      "sha256": "e2dd8baa1153b0442992459d7260bbc2ced6890d49a8e0ebea0c5636ba0d84f9"
+    },
+    {
+      "name": "promotion-verification.json",
+      "sha256": "1d2decc746339672e07437dba464567e157ea9624d6c716d3be521882cb61da9"
+    },
+    {
+      "name": "qualification/bb-backstop.log",
+      "sha256": "91e6245ef4ccb9e588be42869df78afc4c2fab24a159ccb49f71ec4161a6b5f9"
+    },
+    {
+      "name": "qualification/observation.json",
+      "sha256": "11c3a4e01a2e56332d04935a3fa855bde888124385ef4ae5e22699189a0a0dd6"
+    },
+    {
+      "name": "qualification/validation-report.edn",
+      "sha256": "ace429114a46f703254afb314fbaab9c1597a6f52ff4c9a8844c62df6162c7a9"
+    },
+    {
+      "name": "review/staged-review.json",
+      "sha256": "5681756c05eb11245c05b2ba9cdc124e693f15b74b36f3e11e3653a52aa8a45a"
+    },
+    {
+      "name": "review/staged-review.md",
+      "sha256": "2b1046caf961bff2e0b0613757b87681d85a580ec9083f3287559b4b6b84bf38"
+    },
+    {
+      "name": "staging/jjq-history.txt",
+      "sha256": "0fa2be807d023be8f6843a5631ae354f1c8f10f59a069fd115147eb809329a40"
+    },
+    {
+      "name": "staging/jjq-realization.json",
+      "sha256": "2695b7495f33141fba572e795e53af25451a17b8596a655667581958451984ef"
+    },
+    {
+      "name": "staging/jjq-status.json",
+      "sha256": "f1d8de9dfdb44a9553b94aca30b61b88b318a7f6cbb554586b0922f6e2de63fa"
+    },
+    {
+      "name": "staging/staging-admission.json",
+      "sha256": "36a7f27b0bd68e8037ee6f4857fe8e06623f13e08add97f4152b122d03c3f418"
+    },
+    {
+      "name": "workspace/c1-c2-retention.md",
+      "sha256": "743bde4558d88eb81bd55bb05d5c671b12bbcbd6282017cdbbc3e33b06357b86"
+    },
+    {
+      "name": "workspace/workspace-audit.json",
+      "sha256": "0f03ef662b150aee9993f49d32e4e5255589ca85ed3520c54b71b2f461e2b763"
+    }
+  ],
+  "note": "Names and hashes identify privately retained original artifacts without exposing their original local paths.",
+  "raw_original_manifest_sha256": "2a804c36eb0e7339b358c15be244361bd55a820e503eaa630be808821bc54867",
+  "schema": "prf-dev.integration-promotion-public-manifest.v1"
+}

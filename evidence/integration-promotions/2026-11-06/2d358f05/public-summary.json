@@ -1,0 +1,126 @@
+{
+  "admission_sha256": "ffff18b0c90fbaca25901f73e9c2f68876dac10bb9daa802e5c67ba32175fe0b",
+  "evidence_artifacts": [
+    {
+      "name": "admission-record.json",
+      "sha256": "ffff18b0c90fbaca25901f73e9c2f68876dac10bb9daa802e5c67ba32175fe0b"
+    },
+    {
+      "name": "preflight-report.json",
+      "sha256": "0f994fbd475dfe781ca871230f82732adb89e81fae1fba776e2ea4b5377b6614"
+    },
+    {
+      "name": "promotion-record.json",
+      "sha256": "e2dd8baa1153b0442992459d7260bbc2ced6890d49a8e0ebea0c5636ba0d84f9"
+    },
+    {
+      "name": "promotion-verification.json",
+      "sha256": "1d2decc746339672e07437dba464567e157ea9624d6c716d3be521882cb61da9"
+    },
+    {
+      "name": "qualification/bb-backstop.log",
+      "sha256": "91e6245ef4ccb9e588be42869df78afc4c2fab24a159ccb49f71ec4161a6b5f9"
+    },
+    {
+      "name": "qualification/observation.json",
+      "sha256": "11c3a4e01a2e56332d04935a3fa855bde888124385ef4ae5e22699189a0a0dd6"
+    },
+    {
+      "name": "qualification/validation-report.edn",
+      "sha256": "ace429114a46f703254afb314fbaab9c1597a6f52ff4c9a8844c62df6162c7a9"
+    },
+    {
+      "name": "review/staged-review.json",
+      "sha256": "5681756c05eb11245c05b2ba9cdc124e693f15b74b36f3e11e3653a52aa8a45a"
+    },
+    {
+      "name": "review/staged-review.md",
+      "sha256": "2b1046caf961bff2e0b0613757b87681d85a580ec9083f3287559b4b6b84bf38"
+    },
+    {
+      "name": "staging/jjq-history.txt",
+      "sha256": "0fa2be807d023be8f6843a5631ae354f1c8f10f59a069fd115147eb809329a40"
+    },
+    {
+      "name": "staging/jjq-realization.json",
+      "sha256": "2695b7495f33141fba572e795e53af25451a17b8596a655667581958451984ef"
+    },
+    {
+      "name": "staging/jjq-status.json",
+      "sha256": "f1d8de9dfdb44a9553b94aca30b61b88b318a7f6cbb554586b0922f6e2de63fa"
+    },
+    {
+      "name": "staging/staging-admission.json",
+      "sha256": "36a7f27b0bd68e8037ee6f4857fe8e06623f13e08add97f4152b122d03c3f418"
+    },
+    {
+      "name": "workspace/c1-c2-retention.md",
+      "sha256": "743bde4558d88eb81bd55bb05d5c671b12bbcbd6282017cdbbc3e33b06357b86"
+    },
+    {
+      "name": "workspace/workspace-audit.json",
+      "sha256": "0f03ef662b150aee9993f49d32e4e5255589ca85ed3520c54b71b2f461e2b763"
+    }
+  ],
+  "included_commits": [
+    "c8ea230e0ebe8b4fea11ab308c83d4498fb5955b",
+    "8c1bd2445a2e18d2e2d758b519d86fc057f18e5d",
+    "b772d530c81098508f87cb59abef25526818a2c9",
+    "83fcda7823613dadb4f048c6f0a0ef98834abf6d",
+    "8e64c43b617e5e7ee2e34bf88bf677b18d73ce6e",
+    "ea7a63b7f8b991ee1a51413dafb0beb632faaa61",
+    "d25c25d787ea044e34f0eb73502c8311b896942a",
+    "1a4ee0a595233cf7bbe4f46b43c74248b8497c7c",
+    "a1c4e459fcafb3baaad12cec6996d56a56311229",
+    "ad9a3d60d0b7a936695f4349a38267299d9c1dbb",
+    "0dff8f94c9b053b838d5b3b97d21db1420a6f508",
+    "fc58dc870242520a2485dd3de4049027bbfbf35d",
+    "41b781a4a77c4910fb48a9f1714ffe0ee2abb690",
+    "fbbbae3a9478f3afda6a01b279e0a9b845068230",
+    "9d4e3dc183462d3c950e4eebbe53c0f16764e4a4",
+    "2d358f05ae03ff9dc3e23deb9ce904aaaa13e44a"
+  ],
+  "jj_operation_id": "73f4cdd112cfac587116e004ffa30bee4caafafdfe40aec7db30e73812ceed3de486ce56bf5090ac87a38caeb09f8f96416b642f915e6fd255ce8700cdbb7692",
+  "notes": [
+    "This is a path-sanitized summary, not an admission, preflight, promotion, or verification record.",
+    "Original byte-for-byte receipts are retained in a private local archive; artifact hashes above bind those originals.",
+    "The summary omits host paths and workspace inventory details."
+  ],
+  "preflight_sha256": "52a18c96c06369a19dc95cebf601b1a8b9c43c1700e4e8b25b935d34082d1914",
+  "private_original_manifest_sha256": "2a804c36eb0e7339b358c15be244361bd55a820e503eaa630be808821bc54867",
+  "promotion_date": "2026-11-06",
+  "promotion_record_sha256": "e2dd8baa1153b0442992459d7260bbc2ced6890d49a8e0ebea0c5636ba0d84f9",
+  "qualification": [
+    {
+      "command": "bb validate",
+      "sha256": "ace429114a46f703254afb314fbaab9c1597a6f52ff4c9a8844c62df6162c7a9",
+      "status": "passed",
+      "tree": "e1b05ae12658d54112dafa941cffaf5590cba9aa"
+    },
+    {
+      "command": "bb backstop",
+      "sha256": "91e6245ef4ccb9e588be42869df78afc4c2fab24a159ccb49f71ec4161a6b5f9",
+      "status": "passed",
+      "tree": "e1b05ae12658d54112dafa941cffaf5590cba9aa"
+    }
+  ],
+  "repository": "protocol-robustness/protocol-robustness-framework",
+  "result": {
+    "commit": "2d358f05ae03ff9dc3e23deb9ce904aaaa13e44a",
+    "ref": "integration",
+    "tree": "e1b05ae12658d54112dafa941cffaf5590cba9aa"
+  },
+  "schema": "prf-dev.integration-promotion-public-summary.v1",
+  "source": {
+    "commit": "2d358f05ae03ff9dc3e23deb9ce904aaaa13e44a",
+    "ref": "agent-c-staging",
+    "tree": "e1b05ae12658d54112dafa941cffaf5590cba9aa"
+  },
+  "status": "promoted-and-verified",
+  "target_before": {
+    "commit": "f2777908e435ab584ebd89ba1aa2ead184a9974d",
+    "ref": "integration",
+    "tree": "ebf3022c0ba4d3a562623464536992d01d398d01"
+  },
+  "verification_record_sha256": "1d2decc746339672e07437dba464567e157ea9624d6c716d3be521882cb61da9"
+}
