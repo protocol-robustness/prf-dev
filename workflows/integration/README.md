@@ -70,6 +70,10 @@ prf-dev integration verify \
   --record /path/to/promotion-record.json
 ```
 
+## Retaining promotion evidence
+
+Retain the raw promotion record and supporting evidence byte-for-byte in an access-controlled durable archive. Do not commit raw host paths, workspace inventories, or operator data to a public repository. For a public repository, commit a path-sanitized summary under `evidence/integration-promotions/YYYY-MM-DD/<promoted-commit-prefix>/` with source and target identities, the exact included commit IDs, JJ operation ID, qualification status, and original artifact digests. Mark the summary as non-authoritative: it is not a promotion gate record and cannot replace the raw evidence during verification. Record failed or incomplete attempts separately; never replace them with a later successful receipt.
+
 ## Relationship to staging admission
 
 PRF Symphony now separates the quick per-candidate screen from full staging qualification. The reviewer `after_run` hook validates the exact approved candidate, runs `bb backstop:fast` against a temporary merge with current `agent-c-staging`, and records it under the host's pending staging queue. A pending candidate does not move `agent-c-staging`, create an accepted staging receipt, mark its Linear issue Done, or unlock strict dependencies.
