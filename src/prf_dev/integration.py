@@ -342,7 +342,8 @@ def _admission_blockers(document: Any, source: str, target: str, tree: str, targ
     return blockers, summary
 
 
-def preflight(repo: JJRepository, source_ref: str, target_ref: str, admission_path: str | Path) -> dict[str, Any]:
+def preflight(repo: JJRepository, source_ref: str, target_ref: str, admission_path: str | Path,
+              staging_refs: tuple[str, ...] = ("agent-c-staging",)) -> dict[str, Any]:
     blockers: list[str] = []
     admission_file = Path(admission_path).expanduser().resolve()
     workspace_audit: dict[str, Any] | None = None
@@ -370,7 +371,7 @@ def preflight(repo: JJRepository, source_ref: str, target_ref: str, admission_pa
                 blockers.append(f"included commit contains conflicts: {change['commit']}")
         # The submitted source may be an immutable candidate ID. The lineage
         # audit must still compare agent workspaces to the protected bookmarks.
-        workspace_audit = audit_workspaces(repo)
+        workspace_audit = audit_workspaces(repo, staging_refs=staging_refs)
         admission_reasons, summary = _admission_blockers(admission, source, target, source_tree, target_tree,
                                                          commits, admission_file.parent)
         blockers.extend(admission_reasons)
@@ -380,6 +381,7 @@ def preflight(repo: JJRepository, source_ref: str, target_ref: str, admission_pa
             "repository": str(repo.root),
             "source": {"ref": source_ref, "commit": source, "tree": source_tree},
             "target": {"ref": target_ref, "commit": target, "tree": target_tree},
+            "staging_refs": workspace_audit.get("staging_refs", []),
             "included_changes": changes,
             "workspace_audit": workspace_audit,
             "admission_record": {"path": str(admission_file), "sha256": _sha(admission_bytes), **summary},
@@ -388,6 +390,7 @@ def preflight(repo: JJRepository, source_ref: str, target_ref: str, admission_pa
     except IntegrationError as exc:
         report = {"schema": "prf-dev.integration-preflight.v2", "status": "blocked",
                   "repository": str(repo.root), "source_ref": source_ref, "target_ref": target_ref,
+                  "staging_refs": [],
                   "admission_record": {"path": str(admission_file), "sha256": _sha(admission_bytes)},
                   "included_changes": [], "workspace_audit": workspace_audit,
                   "blockers": blockers + [str(exc)]}
@@ -397,9 +400,14 @@ def preflight(repo: JJRepository, source_ref: str, target_ref: str, admission_pa
 
 
 def audit_workspaces(repo: JJRepository, staging_ref: str = "agent-c-staging",
-                     integration_ref: str = "integration") -> dict[str, Any]:
-    """Find committed agent-workspace changes absent from staging or integration."""
-    staging = repo.resolve(staging_ref)
+                     integration_ref: str = "integration", *,
+                     staging_refs: tuple[str, ...] | None = None) -> dict[str, Any]:
+    """Find committed agent-workspace changes absent from every staging stream and integration."""
+    refs = staging_refs or (staging_ref,)
+    if not refs or len(set(refs)) != len(refs):
+        raise IntegrationError("at least one distinct staging ref is required")
+    staging_commits = {ref: repo.resolve(ref) for ref in refs}
+    staging = staging_commits[refs[0]]
     integration = repo.resolve(integration_ref)
     workspaces = sorted(
         (workspace for workspace in repo.workspace_heads()
@@ -413,7 +421,9 @@ def audit_workspaces(repo: JJRepository, staging_ref: str = "agent-c-staging",
     outstanding_occurrences = 0
 
     for workspace in workspaces:
-        missing_staging = set(repo.commits_outside(workspace["commit"], staging))
+        missing_by_ref = [set(repo.commits_outside(workspace["commit"], commit))
+                          for commit in staging_commits.values()]
+        missing_staging = set.intersection(*missing_by_ref)
         missing_integration = set(repo.commits_outside(workspace["commit"], integration))
         commits = []
         for commit in sorted(missing_staging | missing_integration):
@@ -423,6 +433,8 @@ def audit_workspaces(repo: JJRepository, staging_ref: str = "agent-c-staging",
             if details["empty"]:
                 continue
             commits.append({**details, "in_staging": commit not in missing_staging,
+                            "in_staging_refs": [ref for ref, staging_commit in staging_commits.items()
+                                                if repo.is_ancestor(commit, staging_commit)],
                             "in_integration": commit not in missing_integration})
         if commits:
             outstanding_ids.update(item["commit"] for item in commits)
@@ -434,7 +446,8 @@ def audit_workspaces(repo: JJRepository, staging_ref: str = "agent-c-staging",
         "schema": "prf-dev.integration-workspace-audit.v1",
         "status": "attention" if outstanding_ids else "clear",
         "repository": str(repo.root),
-        "staging": {"ref": staging_ref, "commit": staging},
+        "staging": {"ref": refs[0], "commit": staging},
+        "staging_refs": [{"ref": ref, "commit": commit} for ref, commit in staging_commits.items()],
         "integration": {"ref": integration_ref, "commit": integration},
         "workspace_filter": ["agent-*", "symphony-*-coding-*"],
         "workspaces_scanned": len(workspaces),
@@ -491,7 +504,8 @@ def _write_json_exclusive(path: Path, value: dict[str, Any]) -> None:
 
 
 def promote(repo: JJRepository, source_ref: str, target_ref: str, admission_path: str | Path,
-            preflight_path: str | Path, expected_preflight_sha256: str, record_path: str | Path) -> dict[str, Any]:
+            preflight_path: str | Path, expected_preflight_sha256: str, record_path: str | Path,
+            staging_refs: tuple[str, ...] = ("agent-c-staging",)) -> dict[str, Any]:
     if not _HEX64.fullmatch(expected_preflight_sha256):
         raise IntegrationError("a full preflight SHA-256 is required")
     preflight_file = Path(preflight_path).expanduser().resolve()
@@ -514,7 +528,7 @@ def promote(repo: JJRepository, source_ref: str, target_ref: str, admission_path
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise IntegrationError("another integration promotion holds the repository lock") from exc
-        fresh = preflight(repo, source_ref, target_ref, admission_path)
+        fresh = preflight(repo, source_ref, target_ref, admission_path, staging_refs=staging_refs)
         if fresh["status"] != "ready" or fresh["report_sha256"] != expected_preflight_sha256:
             raise IntegrationError("bookmarks or evidence changed since preflight; requalification required")
         record_file = Path(record_path).expanduser().resolve()
@@ -739,7 +753,8 @@ def trigger(repo: JJRepository, source_ref: str, target_ref: str, review_path: s
     except OSError as exc:
         return blocked(f"cannot persist admission record: {type(exc).__name__}")
 
-    report = preflight(repo, source_ref, target_ref, admission_path)
+    staging_refs = ("agent-c-staging", "symphony-staging")
+    report = preflight(repo, source_ref, target_ref, admission_path, staging_refs=staging_refs)
     _replace_json(preflight_path, report)
     if report.get("status") != "ready":
         return {"schema": "prf-dev.integration-trigger.v1", "status": "blocked",
@@ -747,7 +762,7 @@ def trigger(repo: JJRepository, source_ref: str, target_ref: str, review_path: s
                 "blockers": report.get("blockers", [])}
     try:
         promoted = promote(repo, source_ref, target_ref, admission_path, preflight_path,
-                           report["report_sha256"], promotion_path)
+                           report["report_sha256"], promotion_path, staging_refs=staging_refs)
         verified = verify(repo, promotion_path)
     except IntegrationError as exc:
         return {"schema": "prf-dev.integration-trigger.v1", "status": "blocked",

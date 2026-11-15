@@ -232,6 +232,20 @@ class IntegrationPromotionTests(unittest.TestCase):
         self.assertEqual("f" * 128, record["jj_operation_id"])
         self.assertEqual("verified", integration.verify(self.repo, self.record)["status"])
 
+    def test_promotion_rechecks_the_same_multiple_staging_streams_as_preflight(self):
+        staging_refs = ("agent-c-staging", "symphony-staging")
+        plan = integration.preflight(
+            self.repo, "agent-c-staging", "integration", self.admission, staging_refs=staging_refs
+        )
+        self.report.write_text(json.dumps(plan, sort_keys=True))
+        with patch("prf_dev.integration.preflight", wraps=integration.preflight) as fresh_preflight:
+            result = integration.promote(
+                self.repo, "agent-c-staging", "integration", self.admission,
+                self.report, plan["report_sha256"], self.record, staging_refs=staging_refs,
+            )
+        self.assertEqual("promoted", result["status"])
+        self.assertEqual(staging_refs, fresh_preflight.call_args.kwargs["staging_refs"])
+
     def test_record_cannot_be_reused_or_overwritten(self):
         plan = self.write_preflight()
         self.record.write_text("existing")
@@ -376,6 +390,19 @@ class WorkspaceLineageAuditTests(unittest.TestCase):
              "agent-c-staging", "-r", commit])
         report = integration.audit_workspaces(self.repo)
         entry = report["workspaces"][0]["unlanded_commits"][0]
+        self.assertTrue(entry["in_staging"])
+        self.assertFalse(entry["in_integration"])
+
+    def test_reports_which_staging_stream_contains_agent_commit(self):
+        commit = self.commit_agent_change("feature.txt", "agent feature\n")
+        run(["jj", "--ignore-working-copy", "-R", str(self.repo_path), "bookmark", "create",
+             "symphony-staging", "-r", commit])
+        report = integration.audit_workspaces(
+            self.repo,
+            staging_refs=("agent-c-staging", "symphony-staging"),
+        )
+        entry = report["workspaces"][0]["unlanded_commits"][0]
+        self.assertEqual(["symphony-staging"], entry["in_staging_refs"])
         self.assertTrue(entry["in_staging"])
         self.assertFalse(entry["in_integration"])
 

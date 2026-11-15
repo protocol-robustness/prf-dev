@@ -594,12 +594,18 @@ def _emit_integration_report(value: dict, output: str | None = None, repo_path: 
 
 def cmd_integration_preflight(args: argparse.Namespace) -> int:
     repo = JJRepository(args.repo)
-    result = integration_preflight(repo, args.source_ref, args.target_ref, args.admission_record)
+    staging_refs = tuple(args.staging_refs) if args.staging_refs else ("agent-c-staging", "symphony-staging")
+    result = integration_preflight(repo, args.source_ref, args.target_ref, args.admission_record,
+                                   staging_refs=staging_refs)
     return _emit_integration_report(result, args.output, args.repo)
 
 
 def cmd_integration_audit_workspaces(args: argparse.Namespace) -> int:
-    result = integration_audit_workspaces(JJRepository(args.repo), args.staging_ref, args.integration_ref)
+    staging_refs = tuple(args.staging_refs) if args.staging_refs else (
+        (args.staging_ref,) if args.staging_ref else ("agent-c-staging", "symphony-staging")
+    )
+    result = integration_audit_workspaces(JJRepository(args.repo), integration_ref=args.integration_ref,
+                                          staging_refs=staging_refs)
     return _emit_integration_report(result, args.output, args.repo)
 
 
@@ -612,8 +618,10 @@ def cmd_integration_promote(args: argparse.Namespace) -> int:
     target_ref = report.get("target", {}).get("ref")
     if not source_ref or not target_ref:
         raise PrfDevError("preflight report does not name source and target refs")
+    staging_refs = tuple(args.staging_refs) if args.staging_refs else ("agent-c-staging", "symphony-staging")
     result = integration_promote(JJRepository(args.repo), source_ref, target_ref, args.admission_record,
-                                 args.preflight_report, args.preflight_sha256, args.record)
+                                 args.preflight_report, args.preflight_sha256, args.record,
+                                 staging_refs=staging_refs)
     return _emit_integration_report(result, args.output, args.repo)
 
 
@@ -713,12 +721,16 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--repo", required=True, help="PRF JJ workspace path")
     preflight.add_argument("--source-ref", default="agent-c-staging")
     preflight.add_argument("--target-ref", default="integration")
+    preflight.add_argument("--staging-refs", nargs="+",
+                           help="staging streams covered by the workspace-lineage audit (default: agent-c-staging symphony-staging)")
     preflight.add_argument("--admission-record", required=True, help="review/staging/validation evidence JSON")
     preflight.add_argument("--output", help="write the deterministic report outside the repository")
     preflight.set_defaults(func=cmd_integration_preflight)
     audit = integration_sub.add_parser("audit-workspaces", help="find committed agent changes not in staging or integration")
     audit.add_argument("--repo", required=True, help="PRF JJ workspace path")
-    audit.add_argument("--staging-ref", default="agent-c-staging")
+    audit.add_argument("--staging-ref", help="legacy single staging ref; use --staging-refs for multiple streams")
+    audit.add_argument("--staging-refs", nargs="+",
+                       help="staging streams covered by the workspace-lineage audit (default: agent-c-staging symphony-staging)")
     audit.add_argument("--integration-ref", default="integration")
     audit.add_argument("--output", help="write the deterministic report outside the repository")
     audit.set_defaults(func=cmd_integration_audit_workspaces)
@@ -727,6 +739,8 @@ def build_parser() -> argparse.ArgumentParser:
     promote_cmd.add_argument("--preflight-report", required=True)
     promote_cmd.add_argument("--preflight-sha256", required=True)
     promote_cmd.add_argument("--admission-record", required=True)
+    promote_cmd.add_argument("--staging-refs", nargs="+",
+                             help="staging streams covered by fresh lineage preflight (default: agent-c-staging symphony-staging)")
     promote_cmd.add_argument("--record", required=True, help="new durable promotion record path outside the repository")
     promote_cmd.add_argument("--output")
     promote_cmd.set_defaults(func=cmd_integration_promote)

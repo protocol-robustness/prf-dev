@@ -47,8 +47,10 @@ class PublicationAndSchemaTests(unittest.TestCase):
         self.assertIs(args.func, cli.cmd_integration_preflight)
         promote = cli.build_parser().parse_args(["integration", "promote", "--repo", "/tmp/repo",
             "--preflight-report", "/tmp/report.json", "--preflight-sha256", "0"*64,
-            "--admission-record", "/tmp/admission.json", "--record", "/tmp/promotion.json"])
+            "--admission-record", "/tmp/admission.json", "--record", "/tmp/promotion.json",
+            "--staging-refs", "agent-c-staging", "symphony-staging"])
         self.assertIs(promote.func, cli.cmd_integration_promote)
+        self.assertEqual(["agent-c-staging", "symphony-staging"], promote.staging_refs)
         verify = cli.build_parser().parse_args(["integration", "verify", "--repo", "/tmp/repo",
             "--record", "/tmp/promotion.json"])
         self.assertIs(verify.func, cli.cmd_integration_verify)
