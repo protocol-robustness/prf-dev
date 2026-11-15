@@ -1,0 +1,67 @@
+{
+  "files": [
+    {
+      "name": "admission-record.json",
+      "sha256": "97d298ce2c73aa90aa48b74e8efdc1df5d9ff9a4534dcac761bc77195ffdd96d"
+    },
+    {
+      "name": "preflight-report.json",
+      "sha256": "fc33692fe74a657cee6738e623ff39bcc8434c3e61184b6e1ef9a95a5069ad3e"
+    },
+    {
+      "name": "promotion-record.json",
+      "sha256": "7b769285a050b2028984e41b0957753c03e191b30f3b7e75dabb793681086a28"
+    },
+    {
+      "name": "promotion-verification.json",
+      "sha256": "e561a12a01ea7404066c9fe8326fdc8a4dd8b9ef6fa0349014e3407bb3517112"
+    },
+    {
+      "name": "qualification/bb-validate.log",
+      "sha256": "a7900cdb7d274ea085dedc9954a78360c703ddd05a8fbec427f0490513586bc7"
+    },
+    {
+      "name": "qualification/bb-backstop.log",
+      "sha256": "9cec94c5cb9e0df18ab5be2c84968b3bf3946b11974e40ae5e21823db1563d63"
+    },
+    {
+      "name": "qualification/validation-report.edn",
+      "sha256": "459bac14b906d1f9e34f34ddcb04f32559d2814bb4bf7d7f621eb68aea7c3d4a"
+    },
+    {
+      "name": "qualification/observation.json",
+      "sha256": "b848a42473faf2ef987f5dd895af4512119ee58e823c0be62a8ba4b039ccea3d"
+    },
+    {
+      "name": "review/staged-review.json",
+      "sha256": "697409c92fda6d291e21475e4a4d07a5525dcb294e3458012b7e58b68230919b"
+    },
+    {
+      "name": "review/staged-review.md",
+      "sha256": "ce0b4cc93917d5a02ac5c30a25ea812557976c6f0eaadd79d7aefeb3d55f8278"
+    },
+    {
+      "name": "staging/staging-admission.json",
+      "sha256": "48a15eddbfc7e2278802c6bd79fcd8942c2e2c64754c923740d53ddf31ce0f61"
+    },
+    {
+      "name": "staging/jjq-status.json",
+      "sha256": "6eb2bc1d8fa8fc1944101f7e215305da440916fa087ebd812866e5c29662d49c"
+    },
+    {
+      "name": "staging/jjq-history.json",
+      "sha256": "679a764d53e0083c5cc949fac79c54e4135e40e96529ce4a4f9364e39af5fd44"
+    },
+    {
+      "name": "workspace/workspace-audit.json",
+      "sha256": "d1c50f4a9a25345cd96c3a43546a7db6a0cf65b514d60b9c2a2a8bebfc84cb63"
+    },
+    {
+      "name": "promotion-abort-note.md",
+      "sha256": "330397237df74d5f0aa917f7324554300576ea56353ddef16f720e22f2a7afa8"
+    }
+  ],
+  "note": "Names and hashes identify privately retained original artifacts without exposing their local paths.",
+  "raw_original_manifest_sha256": "160b70f753ffcd5b75248eefa4be7900d2ded420ad1142ba494bbd1507493422",
+  "schema": "prf-dev.integration-promotion-public-manifest.v1"
+}

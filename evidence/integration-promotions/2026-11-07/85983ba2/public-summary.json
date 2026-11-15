@@ -1,0 +1,65 @@
+{
+  "admission_sha256": "97d298ce2c73aa90aa48b74e8efdc1df5d9ff9a4534dcac761bc77195ffdd96d",
+  "evidence_manifest_sha256": "6c7724b7cc8a40327abf63b1d30f754f7df97e0019bdc1d238a73f45a9aa9e27",
+  "included_commits": [
+    "457592beea2c37f1cabb634cd8b7d19de4939ab3",
+    "f3643acc1f823cfd30c18ac1bff37a9717ce6642",
+    "b94b091cfbaf46ec34ae2ade4920f9a3751e3097",
+    "a9a0cfbd867bf7e51e528436b067b3cb7d8762ba",
+    "e89e3afeba5dec87375fde95ba3cdb9a59e79cc3",
+    "c74cc78475d3cbb1685cb495baec2405488d0733",
+    "85983ba2766908d8c68792b090fcfafb378ea468"
+  ],
+  "jj_operation_id": "82d77c89b4b985a9949d0506d18ac88f42daad26e5e4b5723bfa3a502c0eba9ae3aad80928d3ca9298d5c16cf4de1b6f7ccfb16482e1f509678b491b7204a32d",
+  "notes": [
+    "Two earlier preflight attempts were safely refused after workspace heads changed; the final attempt passed the locked recheck.",
+    "This promotion advances local integration only; it does not qualify the candidate for release or main.",
+    "Public summary omits host paths and the full workspace inventory."
+  ],
+  "preflight_sha256": "2bd6d568303424e7e35f82803a930e3b773163870ba565ecd7a0584ee8a309b5",
+  "promotion_date": "2026-11-07",
+  "promotion_record_sha256": "7b769285a050b2028984e41b0957753c03e191b30f3b7e75dabb793681086a28",
+  "publication": {
+    "main_moved": false,
+    "remote_push_performed": false
+  },
+  "qualification": [
+    {
+      "command": "bb validate",
+      "sha256": "459bac14b906d1f9e34f34ddcb04f32559d2814bb4bf7d7f621eb68aea7c3d4a",
+      "status": "passed",
+      "tree": "0df176417dd3bc4346da0b36a2bc254a953f772d"
+    },
+    {
+      "command": "bb backstop",
+      "sha256": "9cec94c5cb9e0df18ab5be2c84968b3bf3946b11974e40ae5e21823db1563d63",
+      "status": "passed",
+      "tree": "0df176417dd3bc4346da0b36a2bc254a953f772d"
+    }
+  ],
+  "repository": "protocol-robustness/protocol-robustness-framework",
+  "result": {
+    "commit": "85983ba2766908d8c68792b090fcfafb378ea468",
+    "ref": "integration",
+    "tree": "0df176417dd3bc4346da0b36a2bc254a953f772d"
+  },
+  "schema": "prf-dev.integration-promotion-public-summary.v1",
+  "source": {
+    "commit": "85983ba2766908d8c68792b090fcfafb378ea468",
+    "ref": "agent-c-staging",
+    "tree": "0df176417dd3bc4346da0b36a2bc254a953f772d"
+  },
+  "status": "promoted-and-verified",
+  "target_before": {
+    "commit": "2d358f05ae03ff9dc3e23deb9ce904aaaa13e44a",
+    "ref": "integration",
+    "tree": "e1b05ae12658d54112dafa941cffaf5590cba9aa"
+  },
+  "verification_record_sha256": "e561a12a01ea7404066c9fe8326fdc8a4dd8b9ef6fa0349014e3407bb3517112",
+  "workspace_audit": {
+    "retention_note": "Agent-c-2 and agent-c-3 work committed after the candidate was prepared remains outside this promotion; agent-c-presentation adapter and other active workspaces are separately held. See private review artifact hash.",
+    "status": "attention",
+    "unlanded_commit_count": 74,
+    "workspaces_scanned": 51
+  }
+}
