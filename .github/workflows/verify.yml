@@ -12,6 +12,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install pinned Jujutsu CLI
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/jj-0.45.1.tar.gz"
+          curl --fail --location --silent --show-error --retry 3 \
+            https://github.com/jj-vcs/jj/releases/download/v0.45.1/jj-v0.45.1-x86_64-unknown-linux-musl.tar.gz \
+            --output "$archive"
+          echo "f35438350b5d61963aac5dd74ede510b31d6b9690769d1a6268cf058cc825f72  $archive" \
+            | sha256sum --check
+          install_dir="$RUNNER_TEMP/jj"
+          mkdir -p "$install_dir"
+          tar -xzf "$archive" -C "$install_dir"
+          chmod +x "$install_dir/jj"
+          echo "$install_dir" >> "$GITHUB_PATH"
+          version=$("$install_dir/jj" --version)
+          [[ "$version" == "jj 0.45.1"* ]]
+          echo "$version"
       - run: python -m unittest discover -s tests -v
-      - run: tools/verify-publication .
+      - name: Verify curated publication export
+        run: tools/export-publication "$RUNNER_TEMP/prf-dev-publication"
       - run: python -m compileall -q src tests
