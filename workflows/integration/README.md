@@ -52,11 +52,48 @@ prf-dev integration preflight \
   --output /path/to/preflight.json
 ```
 
-Preflight uses JJ with `--ignore-working-copy`, reports exact commit and Git tree IDs, explicitly checks that integration is a member of `ancestors(staging)`, enumerates the ordered included range, inspects each commit against every parent, rejects conflicted commits, and checks admission/review/test evidence. It does not move bookmarks or run code. A report with `status: blocked` exits nonzero.
+Preflight uses JJ with `--ignore-working-copy`, fetches the exact remote-tracking bookmark named by `--main-ref` (default `main@origin`), reports exact commit and Git tree IDs, requires published `main` to be an ancestor of the current integration target, explicitly checks that integration is a member of `ancestors(staging)`, enumerates the ordered included range, inspects each commit against every parent, rejects conflicted commits, and checks admission/review/test evidence. A missing remote, failed fetch, missing/ambiguous main ref, or divergence fails closed. Fetch may advance the local remote-tracking bookmark; preflight does not move protected local bookmarks or run code. A report with `status: blocked` exits nonzero. Promotion repeats the fetch and checks against fresh refs under the existing promotion lock, so an old report cannot admit a candidate after main moves.
 
 Promotion verifies the report's independently supplied SHA-256, reacquires the current refs and admission evidence under a repository-scoped lock, and rejects any changed input before a conditional `jj bookmark move --from <expected-target> --to <source>`. It repeats the workspace-lineage audit with the same `--staging-refs` supplied to preflight; the CLI defaults to both `agent-c-staging` and `symphony-staging`. It writes an exclusive in-progress promotion record before changing the ref and completes that record only after verifying the resulting commit/tree and JJ operation ID. Qualification test entries require digest-bound execution evidence; command names alone are not evidence. The trigger blocks unless its staging receipt supplies those execution receipts. It does not squash, rebase, clean workspaces, or push.
 
 After `prf-dev integration verify` succeeds, refresh the integration workspace working copy from the promoted bookmark. Protected bookmark moves do not automatically move every workspace's working-copy commit: after a queue landing, the `agent-c-staging` workspace may still be at its previous `@`; after Symphony staging qualification, the `symphony-staging` workspace may still be at its previous `@`; after integration promotion, the `integration` workspace may still be at its previous `@`. This does not mean the bookmark move failed.
+
+## Main publication and synchronization
+
+Main publication remains a separate, independently authorized action; integration admission does not authorize publishing main. The normal publication candidate is the already qualified integration commit. Once the authorized publication completes, fetch the remote refs, verify `main@origin` is the published commit, then run:
+
+```sh
+prf-dev integration sync-main --repo /path/to/prf-jj-workspace \
+  --integration-ref integration --main-ref main@origin
+```
+
+This command fetches `--main-ref`, then verifies that main is already an ancestor of integration or conditionally fast-forwards local `integration` when the current integration commit is an ancestor of published main. It never pushes and never rewrites history. If the refs diverged, it stops; do not force-push, reset, or move either ref manually to make the check pass. Open an isolated recovery workspace from the exact fetched tips and create a conflict-free candidate with both `main@origin` and the current integration target in its ancestry. Preserve extracted package boundaries. Independently review and qualify the exact recovery range/tree, prepare ordinary digest-bound admission evidence for that exact range, then run preflight with `--main-recovery --main-ref main@origin`; this exception is ready only when both refs are ancestors of the candidate and all existing review, qualification, conflict, and workspace-lineage checks pass. Promotion rechecks the same recovery condition under the normal lock and conditional move. This option does not bypass any gate and is not used for ordinary staging. Record both tips, merge base(s), tree diff, per-group decisions, qualification receipts, and review evidence with the recovery handoff. Re-run `sync-main` after the separately authorized main publication.
+
+```sh
+prf-dev integration preflight \
+  --repo /path/to/recovery-jj-workspace \
+  --source-ref <reconciled-candidate-commit> \
+  --target-ref integration \
+  --main-ref main@origin \
+  --main-recovery \
+  --staging-refs agent-c-staging symphony-staging \
+  --admission-record /path/to/recovery-admission.json \
+  --output /path/to/recovery-preflight.json
+
+prf-dev integration promote \
+  --repo /path/to/recovery-jj-workspace \
+  --preflight-report /path/to/recovery-preflight.json \
+  --preflight-sha256 <independently-retained-report-digest> \
+  --admission-record /path/to/recovery-admission.json \
+  --staging-refs agent-c-staging symphony-staging \
+  --record /path/to/recovery-promotion-record.json
+
+prf-dev integration verify \
+  --repo /path/to/recovery-jj-workspace \
+  --record /path/to/recovery-promotion-record.json
+```
+
+The invariant is: before an integration candidate is admitted, `main@origin` is an ancestor of `integration`; after publishing an accepted integration candidate to main, the fetched main history is synchronized into integration before another candidate is admitted. Routine candidates still proceed autonomously when objective preflight, qualification, and independent review pass; no additional human approval is introduced by synchronization.
 
 In the corresponding workspace, inspect `jj status` and compare `@` with the bookmark. If the working copy is clean and stale, run `jj edit agent-c-staging` in the staging workspace or `jj edit integration` in the integration workspace. `jj edit` changes that workspace's checkout only; it does not move the bookmark or push anything. If `jj status` shows changes, stop and preserve or resolve them before switching. Recheck with `jj status` and `jj log -r "@ | agent-c-staging"` or `jj log -r "@ | integration"`; the working-copy and bookmark labels should identify the same commit. From the integration workspace, then run `jj new agent-c-staging` if a new empty working-copy change is needed for subsequent integration work. The promotion bookmark and verification record remain pinned to the promoted commit.
 
@@ -144,4 +181,4 @@ The trigger does not push or move any other bookmark. An already promoted candid
 
 ## Limits
 
-The repository-scoped lock coordinates `prf-dev` promotions sharing the same JJ store; all authorized integration promotion owners must route through this gate, and staging updates must be serialized by their existing Symphony/jjq owner. Operators must drain/hold that staging writer while preparing a promotion. Direct JJ bookmark commands do not participate in either lock. The conditional target move prevents overwriting a stale integration target, but an independent writer can still change staging between checks or bypass the gate; this remains an operational single-writer limitation. The recorded operation ID proves a JJ operation is present in local history, not who authorized it. This gate does not provide signatures, reviewer identity authentication, publication approval, or remote `main` verification.
+The repository-scoped lock coordinates `prf-dev` promotions and main synchronization sharing the same JJ store; all authorized integration promotion owners must route through this gate, and staging updates must be serialized by their existing Symphony/jjq owner. Operators must drain/hold that staging writer while preparing a promotion. Direct JJ bookmark commands do not participate in either lock. To make the invariant effective operationally, the host integration writer and main publisher must invoke these gates and must not have an alternate path that moves protected bookmarks; repository branch rules alone do not constrain local JJ bookmark changes. The conditional target move prevents overwriting a stale integration target, but an independent writer can still change staging between checks or bypass the gate; this remains an operational single-writer limitation. The recorded operation ID proves a JJ operation is present in local history, not who authorized it. This gate does not provide signatures, reviewer identity authentication, publication approval, or verification of the actual GitHub main ref beyond the fetched remote-tracking bookmark.

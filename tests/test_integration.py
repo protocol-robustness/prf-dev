@@ -31,13 +31,23 @@ class FakeRepo:
         self.root = root.resolve()
         (self.root / ".jj" / "repo").mkdir(parents=True)
         (self.root / ".jj" / "repo").mkdir(exist_ok=True)
-        self.refs = {"agent-c-staging": SOURCE, "integration": TARGET}
-        self.trees = {SOURCE: TREE, TARGET: "e" * 40}
+        self.main_commit = "9" * 40
+        self.refs = {"agent-c-staging": SOURCE, "integration": TARGET, "main@origin": self.main_commit}
+        self.trees = {SOURCE: TREE, TARGET: "e" * 40, self.main_commit: "8" * 40}
         self.included = ["1" * 40, "2" * 40]
         self.reverse = []
         self.ancestor = True
+        self.main_ancestor = True
+        self.main_reaches_source = False
         self.conflicts = set()
         self.operations = set()
+        self.fetches = []
+        self.fetch_error = None
+
+    def refresh_remote_bookmark(self, ref):
+        self.fetches.append(ref)
+        if self.fetch_error:
+            raise integration.IntegrationError(self.fetch_error)
 
     def resolve(self, ref):
         return self.refs.get(ref, ref)
@@ -53,7 +63,13 @@ class FakeRepo:
         return []
 
     def is_ancestor(self, ancestor, descendant):
-        return self.ancestor
+        if ancestor == self.main_commit and descendant == TARGET:
+            return self.main_ancestor
+        if ancestor == self.main_commit and descendant == SOURCE:
+            return self.main_reaches_source
+        if ancestor == TARGET and descendant == SOURCE:
+            return self.ancestor
+        return ancestor == descendant
 
     def conflict(self, commit):
         return commit in self.conflicts
@@ -134,8 +150,10 @@ class IntegrationPromotionTests(unittest.TestCase):
         self.assertEqual("ready", plan["status"])
         self.assertEqual(SOURCE, plan["source"]["commit"])
         self.assertEqual(TREE, plan["source"]["tree"])
+        self.assertEqual(self.repo.main_commit, plan["main"]["commit"])
         self.assertEqual("clear", plan["workspace_audit"]["status"])
         self.assertEqual(self.repo.included, [item["commit"] for item in plan["included_changes"]])
+        self.assertEqual(["main@origin"], self.repo.fetches)
         self.assertEqual(plan["report_sha256"], integration._sha(integration._json_bytes({k:v for k,v in plan.items() if k != "report_sha256"})))
 
     def test_preflight_lineage_audit_uses_protected_staging_when_source_is_candidate_id(self):
@@ -154,6 +172,97 @@ class IntegrationPromotionTests(unittest.TestCase):
     def test_empty_reverse_range_does_not_prove_ancestry(self):
         self.repo.ancestor = False
         self.assertEqual("blocked", self.write_preflight()["status"])
+
+    def test_preflight_fails_closed_when_main_is_not_integration_ancestry(self):
+        self.repo.main_ancestor = False
+        plan = self.write_preflight()
+        self.assertEqual("blocked", plan["status"])
+        self.assertTrue(any("main@origin" in item and "not an ancestor" in item for item in plan["blockers"]))
+
+    def test_preflight_fails_closed_when_main_fetch_fails(self):
+        self.repo.fetch_error = "remote unavailable"
+        plan = self.write_preflight()
+        self.assertEqual("blocked", plan["status"])
+        self.assertIn("remote unavailable", plan["blockers"][-1])
+
+    def test_divergence_recovery_requires_both_tips_in_candidate_ancestry(self):
+        self.repo.main_ancestor = False
+        self.repo.main_reaches_source = True
+        plan = integration.preflight(self.repo, "agent-c-staging", "integration", self.admission,
+                                     allow_main_recovery=True)
+        self.assertEqual("ready", plan["status"])
+        self.assertTrue(plan["main_recovery"])
+        self.repo.main_reaches_source = False
+        blocked = integration.preflight(self.repo, "agent-c-staging", "integration", self.admission,
+                                        allow_main_recovery=True)
+        self.assertEqual("blocked", blocked["status"])
+
+    def test_history_only_recovery_accepts_exact_independent_review_and_tree_bound_qualification(self):
+        self.repo.main_ancestor = False
+        self.repo.main_reaches_source = True
+        self.repo.trees[TARGET] = TREE
+        packet = self.root / "recovery-packet.json"
+        prior_review = self.root / "prior-review.json"
+        prior_qualification = self.root / "prior-qualification.json"
+        packet.write_text("packet")
+        prior_review.write_text("prior review")
+        prior_qualification.write_text("prior qualification")
+        review_doc = {
+            "schema": "prf-main-integration-recovery-independent-review.v1",
+            "status": "approved", "reviewer": "reviewer-1",
+            "source_commit": TARGET, "target_commit": SOURCE,
+            "source_tree": TREE, "target_tree": TREE,
+            "reviewed_commits": self.repo.included,
+            "reviewed_commit_count": len(self.repo.included),
+            "decision": "Approve this exact range as a history-only reconciliation candidate.",
+            "evidence": {
+                "packet": str(packet), "packet_sha256": integration._sha(packet.read_bytes()),
+                "prior_review": str(prior_review), "prior_review_sha256": integration._sha(prior_review.read_bytes()),
+                "qualification_receipt": str(prior_qualification),
+                "qualification_receipt_sha256": integration._sha(prior_qualification.read_bytes()),
+            },
+            "protected_refs_moved": False,
+        }
+        self.review_evidence.write_text(json.dumps(review_doc))
+        self.stage_doc["target_tree"] = TREE
+        stage_bytes = json.dumps(self.stage_doc).encode()
+        self.staging_evidence.write_bytes(stage_bytes)
+        review_bytes = self.review_evidence.read_bytes()
+        admission_doc = {
+            "schema": "prf-dev.integration-admission.v2", "status": "admitted",
+            "source_commit": SOURCE, "source_tree": TREE, "target_commit": TARGET, "target_tree": TREE,
+            "reviewed_commits": self.repo.included,
+            "review": {"status": "approved", "candidate_commit": SOURCE, "reviewer": "reviewer-1",
+                       "reviewed_commits": self.repo.included, "ref": str(self.review_evidence),
+                       "sha256": integration._sha(review_bytes)},
+            "staging": {"status": "admitted", "source_commit": SOURCE, "target_commit": TARGET,
+                        "source_tree": TREE, "target_tree": TREE, "included_commits": self.repo.included,
+                        "ref": str(self.staging_evidence), "sha256": integration._sha(stage_bytes)},
+            "qualification": {"status": "passed", "commit": SOURCE, "tree": TREE,
+                              "tests": self.stage_doc["validation_evidence"]},
+            "issues": ["PRO-94"],
+            "evidence": [{"ref": str(self.review_evidence), "sha256": integration._sha(review_bytes)},
+                         {"ref": str(self.staging_evidence), "sha256": integration._sha(stage_bytes)},
+                         {"ref": str(self.other_evidence), "sha256": integration._sha(b"tests")}],
+        }
+        admission = self.root / "history-only-admission.json"
+        admission.write_text(json.dumps(admission_doc))
+        plan = integration.preflight(self.repo, "agent-c-staging", "integration", admission,
+                                     allow_main_recovery=True)
+        self.assertEqual("ready", plan["status"], plan["blockers"])
+        self.assertTrue(plan["main_recovery"])
+
+    def test_sync_main_fast_forwards_only_when_integration_is_ancestor(self):
+        self.repo.refs["main@origin"] = SOURCE
+        result = integration.sync_main(self.repo)
+        self.assertEqual("synchronized", result["status"])
+        self.assertEqual(SOURCE, self.repo.refs["integration"])
+
+    def test_sync_main_refuses_divergence(self):
+        self.repo.main_ancestor = False
+        self.repo.ancestor = False
+        with self.assertRaisesRegex(integration.IntegrationError, "diverged"):
+            integration.sync_main(self.repo)
 
     def test_conflicted_included_change_blocks(self):
         self.repo.conflicts.add(self.repo.included[0])
@@ -454,6 +563,10 @@ class RealJJInspectionTests(unittest.TestCase):
         subprocess.run(["jj", "-R", str(self.root), "config", "set", "--repo", "user.email", "jj-test@example.test"], check=True, env=self.env)
         self.git("config", "user.name", "JJ Test")
         self.git("config", "user.email", "jj-test@example.test")
+        self.remote = Path(self.temp.name) / "origin.git"
+        subprocess.run(["git", "init", "--bare", str(self.remote)], check=True,
+                       text=True, capture_output=True, env=self.env)
+        self.git("remote", "add", "origin", str(self.remote))
 
     def tearDown(self):
         if self.old_xdg is None:
@@ -518,6 +631,41 @@ class RealJJInspectionTests(unittest.TestCase):
         repo = integration.JJRepository(self.root)
         self.assertTrue(repo.is_ancestor(first, repo.resolve("@")))
 
+    def test_real_jj_sync_main_fetches_remote_and_fast_forwards(self):
+        base = self.commit_files({"base.txt": "base\n"}, "base")
+        self.bookmark("integration", base)
+        self.git("push", "origin", f"{base}:refs/heads/main")
+        repo = integration.JJRepository(self.root)
+        repo.refresh_remote_bookmark("main@origin")
+        self.assertEqual(base, repo.resolve("main@origin"))
+        main_tip = self.commit_files({"main.txt": "published\n"}, "published main")
+        self.git("push", "origin", f"{main_tip}:refs/heads/main")
+
+        self.assertEqual(base, repo.resolve("main@origin"))
+        result = integration.sync_main(repo)
+        self.assertEqual("synchronized", result["status"])
+        self.assertEqual(main_tip, repo.resolve("integration"))
+        self.assertEqual(main_tip, repo.resolve("main@origin"))
+
+    def test_real_jj_sync_main_fetches_then_refuses_divergence(self):
+        base = self.commit_files({"base.txt": "base\n"}, "base")
+        self.bookmark("integration", base)
+        self.git("push", "origin", f"{base}:refs/heads/main")
+        self.jj("git", "fetch", "--remote", "origin", "--branch", "main")
+
+        integration_tip = self.commit_files({"integration.txt": "integration\n"}, "integration-only")
+        self.bookmark("integration", integration_tip)
+        subprocess.run(["jj", "-R", str(self.root), "new", base], check=True,
+                       capture_output=True, env=self.env)
+        main_tip = self.commit_files({"main.txt": "main\n"}, "main-only")
+        self.git("push", "origin", f"{main_tip}:refs/heads/main")
+
+        repo = integration.JJRepository(self.root)
+        with self.assertRaisesRegex(integration.IntegrationError, "main and integration diverged"):
+            integration.sync_main(repo)
+        self.assertEqual(integration_tip, repo.resolve("integration"))
+        self.assertEqual(main_tip, repo.resolve("main@origin"))
+
     def commit_files(self, files, message):
         for name, value in files.items():
             (self.root / name).write_text(value)
@@ -536,6 +684,8 @@ class RealJJInspectionTests(unittest.TestCase):
         base = self.commit_files({"base.txt": "base\n"}, "qualified base")
         source = self.commit_files({"candidate.txt": "candidate\n"}, "staged candidate")
         self.bookmark("integration", base)
+        self.bookmark("main", base)
+        self.git("push", "origin", f"{base}:refs/heads/main")
         self.bookmark("agent-c-staging", source)
         repo = integration.JJRepository(self.root)
         tree = repo.tree(source)
@@ -579,7 +729,7 @@ class RealJJInspectionTests(unittest.TestCase):
         }))
         report_path = evidence_dir / "preflight.json"
         record_path = evidence_dir / "promotion.json"
-        report = integration.preflight(repo, "agent-c-staging", "integration", admission)
+        report = integration.preflight(repo, "agent-c-staging", "integration", admission, main_ref="main@origin")
         report_path.write_text(json.dumps(report, sort_keys=True))
         return repo, base, source, admission, report_path, report["report_sha256"], record_path, evidence
 
@@ -594,11 +744,25 @@ class RealJJInspectionTests(unittest.TestCase):
         repo, base, source, admission, report_path, digest, record, _ = self.promotion_fixture()
         unrelated = self.commit_files({"unrelated.txt": "elsewhere\n"}, "unrelated")
         self.bookmark("integration", unrelated)
-        report = integration.preflight(repo, "agent-c-staging", "integration", admission)
+        report = integration.preflight(repo, "agent-c-staging", "integration", admission, main_ref="main@origin")
         self.assertEqual("blocked", report["status"])
         self.assertFalse(repo.is_ancestor(unrelated, source))
         self.assertEqual(unrelated, repo.resolve("integration"))
         self.assertEqual(source, repo.resolve("agent-c-staging"))
+
+    def test_real_jj_preflight_fetches_new_main_before_ancestry_check(self):
+        repo, base, source, admission, report_path, digest, record, _ = self.promotion_fixture()
+        subprocess.run(["jj", "-R", str(self.root), "new", base], check=True,
+                       capture_output=True, env=self.env)
+        published_main = self.commit_files({"published-main.txt": "published\n"}, "new published main")
+        self.git("push", "origin", f"{published_main}:refs/heads/main")
+
+        report = integration.preflight(repo, "agent-c-staging", "integration", admission,
+                                       main_ref="main@origin")
+        self.assertEqual("blocked", report["status"])
+        self.assertEqual(published_main, report["main"]["commit"])
+        self.assertTrue(any("not an ancestor" in blocker for blocker in report["blockers"]))
+        self.assertEqual(base, repo.resolve("integration"))
 
     def test_real_jj_stale_source_bookmark_blocks_without_target_move(self):
         repo, base, source, admission, report_path, digest, record, _ = self.promotion_fixture()
@@ -667,7 +831,7 @@ class RealJJInspectionTests(unittest.TestCase):
         document = json.loads(admission.read_text())
         document["schema"] = "prf-dev.integration-admission.v1"
         admission.write_text(json.dumps(document))
-        report = integration.preflight(repo, "agent-c-staging", "integration", admission)
+        report = integration.preflight(repo, "agent-c-staging", "integration", admission, main_ref="main@origin")
         self.assertEqual("blocked", report["status"])
         self.assertIn("unsupported admission record schema", report["blockers"])
         self.assertEqual(base, repo.resolve("integration"))
@@ -688,7 +852,7 @@ class RealJJInspectionTests(unittest.TestCase):
         cases.append(stale_target_tree)
         for invalid in cases:
             admission.write_text(json.dumps(invalid))
-            report = integration.preflight(repo, "agent-c-staging", "integration", admission)
+            report = integration.preflight(repo, "agent-c-staging", "integration", admission, main_ref="main@origin")
             self.assertEqual("blocked", report["status"])
             self.assertEqual(base, repo.resolve("integration"))
             self.assertEqual(source, repo.resolve("agent-c-staging"))

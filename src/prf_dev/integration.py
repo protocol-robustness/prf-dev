@@ -56,6 +56,24 @@ class JJRepository:
             raise IntegrationError(f"ref is missing, conflicted, or ambiguous: {ref}")
         return value
 
+    def refresh_remote_bookmark(self, ref: str) -> None:
+        """Fetch the exact remote bookmark used as the published-main baseline."""
+        if "@" not in ref:
+            raise IntegrationError(f"published main ref must be a remote-tracking bookmark: {ref}")
+        bookmark, remote = ref.rsplit("@", 1)
+        if not bookmark or not remote:
+            raise IntegrationError(f"malformed remote-tracking bookmark: {ref}")
+        argv = ["jj", "--config", "git.abandon-unreachable-commits=false", "--ignore-working-copy",
+                "-R", str(self.root), "git", "fetch", "--remote", remote, "--branch", bookmark]
+        try:
+            result = subprocess.run(argv, cwd=self.root, text=True, capture_output=True,
+                                    timeout=60, check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise IntegrationError(f"could not refresh published main bookmark {ref}: {exc}") from exc
+        if result.returncode:
+            detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+            raise IntegrationError(f"could not refresh published main bookmark {ref}: {detail}")
+
     def git_root(self) -> Path:
         pointer = self.root / ".jj" / "repo"
         if pointer.is_file():
@@ -160,7 +178,8 @@ class JJRepository:
 
 
 def _admission_blockers(document: Any, source: str, target: str, tree: str, target_tree: str,
-                        commits: list[str], base_dir: Path) -> tuple[list[str], dict[str, Any]]:
+                        commits: list[str], base_dir: Path, *,
+                        history_only_recovery: bool = False) -> tuple[list[str], dict[str, Any]]:
     blockers: list[str] = []
     summary: dict[str, Any] = {"schema": None, "issues": [], "evidence": [], "tests": [], "reviewer": None}
     if not isinstance(document, dict):
@@ -211,6 +230,41 @@ def _admission_blockers(document: Any, source: str, target: str, tree: str, targ
     def check_file_ref(item: Any, label: str) -> None:
         evidence_path(item, label)
 
+    def check_recovery_review(actual: Any, expected: dict[str, Any]) -> bool:
+        if (not history_only_recovery or not isinstance(actual, dict)
+                or actual.get("schema") != "prf-main-integration-recovery-independent-review.v1"
+                or actual.get("status") != "approved"
+                or actual.get("source_commit") != expected["target_commit"]
+                or actual.get("target_commit") != expected["source_commit"]
+                or actual.get("source_tree") != expected["target_tree"]
+                or actual.get("target_tree") != expected["source_tree"]
+                or actual.get("source_tree") != actual.get("target_tree")
+                or actual.get("reviewed_commits") != expected["reviewed_commits"]
+                or actual.get("reviewed_commit_count") != len(expected["reviewed_commits"])
+                or actual.get("reviewer") != expected["reviewer"]
+                or actual.get("protected_refs_moved") is not False
+                or "history-only" not in str(actual.get("decision", "")).lower()):
+            return False
+        evidence = actual.get("evidence")
+        if not isinstance(evidence, dict):
+            return False
+        for name, path_key, digest_key in (
+                ("packet", "packet", "packet_sha256"),
+                ("prior_review", "prior_review", "prior_review_sha256"),
+                ("qualification_receipt", "qualification_receipt", "qualification_receipt_sha256")):
+            item = evidence.get(name)
+            if not isinstance(item, str) or not isinstance(evidence.get(digest_key), str):
+                return False
+            path = Path(item).expanduser()
+            if not path.is_absolute():
+                path = base_dir / path
+            try:
+                if path.is_symlink() or not path.is_file() or _sha(path.read_bytes()) != evidence[digest_key]:
+                    return False
+            except OSError:
+                return False
+        return True
+
     def check_aggregate_ref(item: Any, label: str, expected: dict[str, Any]) -> None:
         path = evidence_path(item, label)
         if path is None:
@@ -221,7 +275,8 @@ def _admission_blockers(document: Any, source: str, target: str, tree: str, targ
             blockers.append(f"{label} aggregate evidence is not valid JSON")
             return
         if label != "staging":
-            if not isinstance(actual, dict) or actual != expected:
+            if (not isinstance(actual, dict) or (actual != expected
+                    and not (label == "review" and check_recovery_review(actual, expected)))):
                 blockers.append(f"{label} aggregate evidence does not bind the exact source, target, trees, and commit range")
             return
         if not isinstance(actual, dict):
@@ -343,7 +398,8 @@ def _admission_blockers(document: Any, source: str, target: str, tree: str, targ
 
 
 def preflight(repo: JJRepository, source_ref: str, target_ref: str, admission_path: str | Path,
-              staging_refs: tuple[str, ...] = ("agent-c-staging",)) -> dict[str, Any]:
+              staging_refs: tuple[str, ...] = ("agent-c-staging",),
+              main_ref: str = "main@origin", allow_main_recovery: bool = False) -> dict[str, Any]:
     blockers: list[str] = []
     admission_file = Path(admission_path).expanduser().resolve()
     workspace_audit: dict[str, Any] | None = None
@@ -354,11 +410,20 @@ def preflight(repo: JJRepository, source_ref: str, target_ref: str, admission_pa
         admission_bytes, admission = b"", None
         blockers.append(f"cannot read valid admission evidence: {type(exc).__name__}")
     try:
+        repo.refresh_remote_bookmark(main_ref)
         source, target = repo.resolve(source_ref), repo.resolve(target_ref)
+        main = repo.resolve(main_ref)
         source_tree, target_tree = repo.tree(source), repo.tree(target)
         commits = repo.between(target, source)
         if repo.conflict(target):
             blockers.append(f"integration target contains conflicts: {target}")
+        main_is_in_target = repo.is_ancestor(main, target)
+        recovery_ready = False
+        if not main_is_in_target:
+            recovery_ready = (allow_main_recovery and repo.is_ancestor(target, source)
+                              and repo.is_ancestor(main, source))
+            if not recovery_ready:
+                blockers.append(f"published main ({main_ref}) is not an ancestor of integration target ({target_ref}); synchronize or use documented divergence recovery with an explicit recovery preflight")
         if source == target:
             blockers.append("source and target are identical; no promotion is allowed")
         elif not repo.is_ancestor(target, source):
@@ -373,7 +438,8 @@ def preflight(repo: JJRepository, source_ref: str, target_ref: str, admission_pa
         # audit must still compare agent workspaces to the protected bookmarks.
         workspace_audit = audit_workspaces(repo, staging_refs=staging_refs)
         admission_reasons, summary = _admission_blockers(admission, source, target, source_tree, target_tree,
-                                                         commits, admission_file.parent)
+                                                         commits, admission_file.parent,
+                                                         history_only_recovery=(recovery_ready and source_tree == target_tree))
         blockers.extend(admission_reasons)
         report: dict[str, Any] = {
             "schema": "prf-dev.integration-preflight.v2",
@@ -381,6 +447,8 @@ def preflight(repo: JJRepository, source_ref: str, target_ref: str, admission_pa
             "repository": str(repo.root),
             "source": {"ref": source_ref, "commit": source, "tree": source_tree},
             "target": {"ref": target_ref, "commit": target, "tree": target_tree},
+            "main": {"ref": main_ref, "commit": main, "tree": repo.tree(main)},
+            "main_recovery": recovery_ready,
             "staging_refs": workspace_audit.get("staging_refs", []),
             "included_changes": changes,
             "workspace_audit": workspace_audit,
@@ -505,7 +573,8 @@ def _write_json_exclusive(path: Path, value: dict[str, Any]) -> None:
 
 def promote(repo: JJRepository, source_ref: str, target_ref: str, admission_path: str | Path,
             preflight_path: str | Path, expected_preflight_sha256: str, record_path: str | Path,
-            staging_refs: tuple[str, ...] = ("agent-c-staging",)) -> dict[str, Any]:
+            staging_refs: tuple[str, ...] = ("agent-c-staging",),
+            main_ref: str | None = None, allow_main_recovery: bool = False) -> dict[str, Any]:
     if not _HEX64.fullmatch(expected_preflight_sha256):
         raise IntegrationError("a full preflight SHA-256 is required")
     preflight_file = Path(preflight_path).expanduser().resolve()
@@ -528,7 +597,9 @@ def promote(repo: JJRepository, source_ref: str, target_ref: str, admission_path
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise IntegrationError("another integration promotion holds the repository lock") from exc
-        fresh = preflight(repo, source_ref, target_ref, admission_path, staging_refs=staging_refs)
+        fresh = preflight(repo, source_ref, target_ref, admission_path, staging_refs=staging_refs,
+                          main_ref=main_ref or saved.get("main", {}).get("ref", "main@origin"),
+                          allow_main_recovery=allow_main_recovery or saved.get("main_recovery", False))
         if fresh["status"] != "ready" or fresh["report_sha256"] != expected_preflight_sha256:
             raise IntegrationError("bookmarks or evidence changed since preflight; requalification required")
         record_file = Path(record_path).expanduser().resolve()
@@ -566,6 +637,40 @@ def promote(repo: JJRepository, source_ref: str, target_ref: str, admission_path
             record.update({"status": "promotion-failed", "failure": f"{type(exc).__name__}: {exc}"})
             _replace_json(record_file, record)
             raise
+
+
+def sync_main(repo: JJRepository, integration_ref: str = "integration",
+              main_ref: str = "main@origin") -> dict[str, Any]:
+    """Synchronize already-published main into integration by fast-forward only."""
+    lock_path = _repo_lock(repo)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise IntegrationError("another integration promotion or synchronization holds the repository lock") from exc
+        repo.refresh_remote_bookmark(main_ref)
+        integration = repo.resolve(integration_ref)
+        main = repo.resolve(main_ref)
+        if repo.is_ancestor(main, integration):
+            return {"schema": "prf-dev.integration-main-sync.v1", "status": "already-synchronized",
+                    "integration": {"ref": integration_ref, "commit": integration, "tree": repo.tree(integration)},
+                    "main": {"ref": main_ref, "commit": main, "tree": repo.tree(main)}}
+        if not repo.is_ancestor(integration, main):
+            raise IntegrationError("main and integration diverged; fast-forward sync is unsafe; use documented divergence recovery")
+        if repo.conflict(main):
+            raise IntegrationError("published main target contains conflicts")
+        repo.move_bookmark(integration_ref, integration, main)
+        current = repo.resolve(integration_ref)
+        if current != main:
+            raise IntegrationError("integration did not reach the accepted main commit")
+        operation_id = repo.operation_id()
+        if not repo.op_exists(operation_id):
+            raise IntegrationError("JJ synchronization operation receipt is not present in operation history")
+        return {"schema": "prf-dev.integration-main-sync.v1", "status": "synchronized",
+                "integration": {"ref": integration_ref, "commit": current, "tree": repo.tree(current)},
+                "main": {"ref": main_ref, "commit": main, "tree": repo.tree(main)},
+                "method": "conditional-fast-forward", "jj_operation_id": operation_id}
 
 
 def verify(repo: JJRepository, record_path: str | Path) -> dict[str, Any]:
@@ -612,6 +717,10 @@ def trigger(repo: JJRepository, source_ref: str, target_ref: str, review_path: s
     records.mkdir(parents=True, exist_ok=True)
     source = repo.resolve(source_ref)
     target = repo.resolve(target_ref)
+    try:
+        main = repo.resolve("main@origin")
+    except IntegrationError as exc:
+        main = None
     source_tree = repo.tree(source)
     target_tree = repo.tree(target)
     admission_path = records / f"admission-{source[:12]}.json"
@@ -623,6 +732,11 @@ def trigger(repo: JJRepository, source_ref: str, target_ref: str, review_path: s
                 "source": {"ref": source_ref, "commit": source, "tree": source_tree},
                 "target": {"ref": target_ref, "commit": target, "tree": target_tree},
                 "blockers": list(reasons)}
+
+    if main is None:
+        return blocked("published main@origin is unavailable; fetch and resolve it before integration admission")
+    if not repo.is_ancestor(main, target):
+        return blocked("published main@origin is not an ancestor of integration; synchronize or use documented divergence recovery")
 
     if source == target and promotion_path.is_file():
         try:

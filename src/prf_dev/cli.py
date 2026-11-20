@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import re
 
-from prf_dev.integration import IntegrationError, JJRepository, audit_workspaces as integration_audit_workspaces, preflight as integration_preflight, promote as integration_promote, verify as integration_verify, trigger as integration_trigger
+from prf_dev.integration import IntegrationError, JJRepository, audit_workspaces as integration_audit_workspaces, preflight as integration_preflight, promote as integration_promote, verify as integration_verify, trigger as integration_trigger, sync_main as integration_sync_main
 from prf_dev.routine import RoutineError, submission as routine_submission, review as routine_review, staging as routine_staging, verify as routine_verify
 import shutil
 import subprocess
@@ -596,7 +596,8 @@ def cmd_integration_preflight(args: argparse.Namespace) -> int:
     repo = JJRepository(args.repo)
     staging_refs = tuple(args.staging_refs) if args.staging_refs else ("agent-c-staging", "symphony-staging")
     result = integration_preflight(repo, args.source_ref, args.target_ref, args.admission_record,
-                                   staging_refs=staging_refs)
+                                   staging_refs=staging_refs, main_ref=args.main_ref,
+                                   allow_main_recovery=args.main_recovery)
     return _emit_integration_report(result, args.output, args.repo)
 
 
@@ -621,12 +622,18 @@ def cmd_integration_promote(args: argparse.Namespace) -> int:
     staging_refs = tuple(args.staging_refs) if args.staging_refs else ("agent-c-staging", "symphony-staging")
     result = integration_promote(JJRepository(args.repo), source_ref, target_ref, args.admission_record,
                                  args.preflight_report, args.preflight_sha256, args.record,
-                                 staging_refs=staging_refs)
+                                 staging_refs=staging_refs, main_ref=report.get("main", {}).get("ref", "main@origin"),
+                                 allow_main_recovery=report.get("main_recovery", False))
     return _emit_integration_report(result, args.output, args.repo)
 
 
 def cmd_integration_verify(args: argparse.Namespace) -> int:
     result = integration_verify(JJRepository(args.repo), args.record)
+    return _emit_integration_report(result, args.output, args.repo)
+
+
+def cmd_integration_sync_main(args: argparse.Namespace) -> int:
+    result = integration_sync_main(JJRepository(args.repo), args.integration_ref, args.main_ref)
     return _emit_integration_report(result, args.output, args.repo)
 
 
@@ -721,6 +728,9 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--repo", required=True, help="PRF JJ workspace path")
     preflight.add_argument("--source-ref", default="agent-c-staging")
     preflight.add_argument("--target-ref", default="integration")
+    preflight.add_argument("--main-ref", default="main@origin", help="remote-tracking published main bookmark to fetch and require as an integration ancestor")
+    preflight.add_argument("--main-recovery", action="store_true",
+                           help="exceptional divergence repair: require both main and integration target as candidate ancestors")
     preflight.add_argument("--staging-refs", nargs="+",
                            help="staging streams covered by the workspace-lineage audit (default: agent-c-staging symphony-staging)")
     preflight.add_argument("--admission-record", required=True, help="review/staging/validation evidence JSON")
@@ -749,6 +759,12 @@ def build_parser() -> argparse.ArgumentParser:
     verify_cmd.add_argument("--record", required=True)
     verify_cmd.add_argument("--output")
     verify_cmd.set_defaults(func=cmd_integration_verify)
+    sync_cmd = integration_sub.add_parser("sync-main", help="fast-forward integration to already-published main when safe")
+    sync_cmd.add_argument("--repo", required=True)
+    sync_cmd.add_argument("--integration-ref", default="integration")
+    sync_cmd.add_argument("--main-ref", default="main@origin")
+    sync_cmd.add_argument("--output")
+    sync_cmd.set_defaults(func=cmd_integration_sync_main)
     trigger_cmd = integration_sub.add_parser(
         "trigger",
         help="one-shot promotion; may move the integration bookmark when all checks pass",

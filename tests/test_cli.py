@@ -45,6 +45,10 @@ class PublicationAndSchemaTests(unittest.TestCase):
         self.assertEqual("integration", args.command)
         self.assertEqual("preflight", args.integration_command)
         self.assertIs(args.func, cli.cmd_integration_preflight)
+        self.assertEqual("main@origin", args.main_ref)
+        recovery = cli.build_parser().parse_args(["integration", "preflight", "--repo", "/tmp/repo",
+            "--admission-record", "/tmp/admission.json", "--main-recovery"])
+        self.assertTrue(recovery.main_recovery)
         promote = cli.build_parser().parse_args(["integration", "promote", "--repo", "/tmp/repo",
             "--preflight-report", "/tmp/report.json", "--preflight-sha256", "0"*64,
             "--admission-record", "/tmp/admission.json", "--record", "/tmp/promotion.json",
@@ -54,6 +58,9 @@ class PublicationAndSchemaTests(unittest.TestCase):
         verify = cli.build_parser().parse_args(["integration", "verify", "--repo", "/tmp/repo",
             "--record", "/tmp/promotion.json"])
         self.assertIs(verify.func, cli.cmd_integration_verify)
+        sync = cli.build_parser().parse_args(["integration", "sync-main", "--repo", "/tmp/repo"])
+        self.assertEqual("main@origin", sync.main_ref)
+        self.assertIs(sync.func, cli.cmd_integration_sync_main)
         trigger = cli.build_parser().parse_args(["integration", "trigger", "--repo", "/tmp/repo",
             "--review-decision", "/tmp/review.json", "--staging-receipt", "/tmp/stage.json",
             "--issue", "PRO-94", "--reviewer", "reviewer-1", "--records-dir", "/tmp/records"])
